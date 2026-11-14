@@ -30,8 +30,9 @@ import { type ContentId, contentIdOfFile, DEFAULT_CHUNK_BYTES, isContentId } fro
 import { fetchSample, type FetchResult, TransferError } from './receiver';
 import { SampleServer } from './sender';
 
-const { values, positionals } = parseArgs({
+const { values, positionals, tokens } = parseArgs({
   allowPositionals: true,
+  tokens: true,
   options: {
     file: { type: 'string' },
     'size-mb': { type: 'string', default: '100' },
@@ -326,7 +327,24 @@ const usage = `Usage:
   npm run transfer -- fetch <wss-url> <invite-code> [--drop-at-mb N] [--dir folder] [--keep] [--where "place"]
 Add --insecure to allow ws:// for a test on one machine, or --ca ca.pem to trust a self-signed relay.`;
 
+/** Options that only one side reads. Passed to the other side they would be silently ignored, so refuse them. */
+const ONLY_FOR: Readonly<Record<'share' | 'fetch', readonly string[]>> = {
+  share: ['file', 'size-mb', 'chunk-kib', 'window-kib', 'target-ms'],
+  fetch: ['drop-at-mb', 'dir', 'keep'],
+};
+
+function checkOptionsFor(side: 'share' | 'fetch'): void {
+  const other = side === 'share' ? 'fetch' : 'share';
+  const given = new Set<string>(tokens.flatMap((token) => (token.kind === 'option' ? [token.name] : [])));
+  const misplaced = ONLY_FOR[other].filter((name) => given.has(name));
+  if (misplaced.length > 0) {
+    const names = misplaced.map((name) => `--${name}`).join(', ');
+    fail(`${names} ${misplaced.length === 1 ? 'is an option' : 'are options'} for ${other}, not ${side}.\n\n${usage}`);
+  }
+}
+
 try {
+  if (command === 'share' || command === 'fetch') checkOptionsFor(command);
   if (command === 'share' && rest[0] !== undefined) await share(rest[0]);
   else if (command === 'fetch' && rest[0] !== undefined && rest[1] !== undefined) await fetch(rest[0], rest[1]);
   else fail(usage);

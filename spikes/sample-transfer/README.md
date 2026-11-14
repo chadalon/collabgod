@@ -147,6 +147,18 @@ From this cloud session, on one machine: real sockets through a real relay, and 
 1. **Resuming worked across real drops.** The fetcher's connection was closed three times, at 0.9, 5.5 and 6.5 per cent of a 200 MB file, and each time it rejoined and continued from the end of its partial file, as finding 2 expects.
 2. **The relay's heartbeat cannot tell a stalled connection from a dead one, and the cap turned that into a failure.** The relay log shows every close on a heartbeat tick: the connection had not answered a ping for 30 seconds. On the fourth drop the fetcher noticed first and rejoined while the relay still counted the old connection, so the lobby of two refused it with `room-full` and the CLI gave up. The CLI now retries rejoining for up to 90 seconds, which covers the relay's two missed heartbeats. For the production relay (#36, #48), a returning member should take over its old connection's place rather than wait for it to time out, and the heartbeat should allow for the long stalls of mobile connections.
 
+**Baseline, 2026-11-14 17:16 and 17:21 UTC, one home network** (same relay; sharer and fetcher on two computers on one home connection in Chapel Hill, about 22 to 25 ms from the relay). Both ends share one router and one connection to the internet, so this is a baseline, not the test between two homes.
+
+| Run | File | Throughput | Fetcher ping before, median / 95th | During, median / 95th / max | Window, median / largest |
+| --- | --- | --- | --- | --- | --- |
+| 17:16 | 47.7 MiB | 135.0 Mbit/s in 3.0 s | 24.9 / 26.9 ms | 27.0 / 57.4 / 57.4 ms (10 samples) | 1105 / 1746 KiB |
+| 17:21, dropped at 50 MB | 190.7 MiB | 148.3 Mbit/s in 10.9 s | 25.4 / 26.9 ms | 27.7 / 50.1 / 71.1 ms (39 samples) | 1202 / 2130 KiB |
+
+- TLS 1.3 with a verified certificate on both sides, every file verified against its content hash, no re-requests, about 19.5 progress events a second.
+- **Resuming on a real network:** the fetcher cut its connection at 47.8 MiB, reconnected and rejoined in 136 ms, and fetched the rest from where it stopped.
+- **What a transfer costs an edit:** the median ping rose by 2 to 3 ms and the 95th percentile by 23 to 31 ms, on both sides. That matches the 25 ms the delay-based window aims for and the 24 to 41 ms measured through the throttling proxy (finding 6). Added to the 54 ms 95th-percentile edit delay the relay spike measured between Chapel Hill and Park City, it stays inside NFR-1's 150 ms.
+- In the 17:16 run `--drop-at-mb` was given to the sharer, which ignored it. The CLI now refuses an option meant for the other side.
+
 ## Questions for the maintainers
 
 - **Is 25 ms of added delay during a transfer acceptable?** It is the target for the delay-based window, and the measured cost was 24 to 41 ms. A lower target protects edits more and slows transfers on connections with a jittery baseline. RFC 6817 allows up to 100 ms, which would leave too little of NFR-1's 150 ms.
