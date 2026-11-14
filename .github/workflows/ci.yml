@@ -136,8 +136,8 @@ jobs:
             exit 0
           fi
           echo "Changed since $base:"
-          git diff --name-only "$base" HEAD | tee changed.txt
-          if grep -qE '^(spikes/engine-toolchain/|\.github/workflows/ci\.yml$)' changed.txt; then
+          git diff --name-only "$base" HEAD | tee "$RUNNER_TEMP/changed.txt"
+          if grep -qE '^(spikes/engine-toolchain/|\.github/workflows/ci\.yml$)' "$RUNNER_TEMP/changed.txt"; then
             echo "engine=true" >> "$GITHUB_OUTPUT"
           else
             echo "Nothing the engine toolchain uses changed, so it is skipped."
