@@ -1,0 +1,17 @@
+{
+  "description": "Remove a clip, then a track with its clip on it",
+  "commands": [
+    { "op": "track.add", "id": "t1", "after": null },
+    { "op": "track.add", "id": "t2", "after": "t1" },
+    { "op": "clip.add", "id": "a", "trackId": "t1", "start": 1, "length": 1, "sampleHash": "hash-a", "file": "${samples}/a.wav" },
+    { "op": "clip.add", "id": "b", "trackId": "t2", "start": 2, "length": 0.5, "sampleHash": "hash-b", "file": "${samples}/b.wav" },
+    { "op": "clip.add", "id": "c", "trackId": "t2", "start": 0, "length": 0.5, "sampleHash": "hash-c", "file": "${samples}/c.wav" },
+    { "op": "clip.remove", "id": "b" },
+    { "op": "track.remove", "id": "t1" }
+  ],
+  "readback": {
+    "tracks": [
+      { "id": "t2", "clips": [ { "id": "c", "start": 0, "length": 0.5, "offset": 0, "sampleHash": "hash-c", "file": "${samples}/c.wav" } ] }
+    ]
+  }
+}
