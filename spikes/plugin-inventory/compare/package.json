@@ -1,0 +1,26 @@
+{
+  "name": "@collabgod/plugin-inventory-compare-spike",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: compare two VST3 plugin inventories and apply a proposed plugin identity rule",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "inventory": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "json5": "^2.2.3",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "fast-check": "^4.10.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
