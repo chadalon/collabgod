@@ -119,7 +119,7 @@ Only the Audio Module Class counts; controller classes and others in the same bu
 
 | Done when | State |
 | --- | --- |
-| Scan VST3 folders on Windows and macOS and record class ID, vendor, name and version | Built and tested on CI runners for both systems, with fake plugins. Not yet run on the maintainers' plugin folders |
+| Scan VST3 folders on Windows and macOS and record class ID, vendor, name and version | Done. Run on a Windows 11 laptop (21 bundles) and a macOS 13 machine (16 bundles) with no failures or timeouts, in addition to the CI runs with fake plugins |
 | Scan runs out of process so a crashing plugin cannot take down the app | Done and tested: crash and hang on load, crash on unload |
-| Inventories from both real machines compared; mismatches and surprises listed | Needs the two machines: run the commands above and post the report |
-| Identity rule proposed | Proposed here and in ADR-0010, to be checked against the real report. Flag or block stays open for #12 and #13 |
+| Inventories from both real machines compared; mismatches and surprises listed | Done on 2026-11-14: 9 plugins shared by class ID, all 9 with different versions; 12 only on Windows, 7 only on the Mac (VST3 only: the Mac also has Serum as VST2 and Serum 1 and Kontakt as AU, which this scan does not read, #82). The report is on the issue; the inventories are not committed |
+| Identity rule proposed | Proposed here and in ADR-0010. The real report agrees with it: class IDs matched across systems, while names, vendors and bundle versions did not. Flag or block stays open for #12 and #13 |
