@@ -177,7 +177,7 @@ The *Chad* columns are the full benchmark on his machines on 2026-11-14. The *ru
 - [x] Both: smoothed and raw playhead look the same (finding 6).
 - [x] Differences between the two web views: WebGPU (finding 3), the GPU name (finding 4), the resize flash (finding 11).
 
-Still open from Chad's notes: on Windows, closing the window did not also close the terminal it was started from. That is normal if the terminal stays open while the app ends. It is a shutdown bug in the spike if the app's process is still running after its window closes; Task Manager would show which.
+Closing the window on Windows left the terminal it was started from open, which is normal: Task Manager showed the app's process ends with its window.
 
 ## Not covered
 
