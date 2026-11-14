@@ -353,7 +353,10 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
     if (move != nullptr)
         move->setValue (1.0f);   // as a host sets any parameter; the plugin then moves Pitch itself
     const float pitchStart = a.value (pitch);
-    waitFor ([&] { return ! a.session.getSync().isHeldHere (pitch.toStdString()) && std::abs (a.value (pitch) - pitchStart) > 0.5f; }, 5000);
+    // The plugin's timer asks for 5 ms ticks, so the sweep should take a second, but
+    // timers can run slower (about 37 ticks a second on a macOS CI runner): wait for
+    // the end of its gesture, not a fixed time.
+    waitFor ([&] { return snap (a).session.rawGestureEvents - s0.session.rawGestureEvents >= 2; }, 20000);
     pump (300);
     const auto s1 = snap (a);
     check (s1.session.rawGestureEvents - s0.session.rawGestureEvents >= 2, "the plugin reports a gesture around its own change",
