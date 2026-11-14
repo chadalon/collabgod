@@ -41,6 +41,7 @@ A different class ID is a different plugin, even with the same name. A class ID 
 - Two editions of a product with different class IDs never match, even if one could open the other's state. If the real inventories show this matters, `moduleinfo.json`'s compatibility list is the way to relate them, as a later change.
 - A plugin whose factory reports a stale version can be flagged as matching when it does not, or as different when it is the same release. The comparison tool lists both cases so the policy can be set from data.
 - Scanning costs a process start per bundle (a few milliseconds) on top of the plugin's own load time. A product scanner should cache by bundle path and modified time and rescan only what changed, like the sample index (ADR-0008).
+- A plugin reference in the session names its format as well as its ID (`vst3` in v1), so another format can be added later without changing the session format. Cross-format matching (AU or CLAP against VST3) is parked in #82; AAX cannot be hosted by third parties at all.
 - A plugin that fails to scan on one machine is not available in a lobby there, even if it would load in the engine. The scan result says why, so the interface can tell the person.
 
 ## How we will know
