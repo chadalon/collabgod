@@ -53,7 +53,14 @@ Progress events carry the state (`waiting`, `transferring`, `verifying`, `done`,
 
 This is the part of issue #16 a cloud session cannot do. It uses the same relay setup as the relay spike's test; see [`../relay/README.md`](../relay/README.md#test-between-two-homes).
 
-**The relay must run this branch**, because it needs the new direct messages and binary frames. On the relay machine, stop the relay, then:
+**The relay must run this branch**, because it needs the new direct messages and binary frames. With the relay README's Google Cloud script, from `spikes/relay`:
+
+```sh
+deploy/gcloud.sh up --branch spike/16-sample-transfer       # a new VM; add --hostname relay.collabgod.com and update its DNS record to use that name
+deploy/gcloud.sh update --branch spike/16-sample-transfer   # or switch a VM that already exists
+```
+
+The relay URL it prints replaces `wss://relay.collabgod.com` in the commands below. On a relay you set up by hand, stop the relay, then:
 
 ```sh
 cd collabgod

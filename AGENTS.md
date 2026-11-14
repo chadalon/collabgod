@@ -49,6 +49,7 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/relay` | `npm test` | Relay tests over real sockets on this machine, including TLS where `openssl` is installed |
 | `spikes/relay` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/relay` | `npm run relay -- serve` | Run a relay; `host` and `join` run the test between two locations (see its README) |
+| `spikes/relay` | `deploy/gcloud.sh up` | Put the relay on a Google Cloud VM with TLS for tests between two locations; `update`, `status`, `logs` and `down` manage it (needs `gcloud` and a project; see its README). CI runs `shellcheck` on these scripts |
 | `spikes/sample-index` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/sample-index` | `npm test` | Hashing, scanning, rescans, near matches and overlap on generated files |
 | `spikes/sample-index` | `npm run typecheck` | Strict TypeScript check |

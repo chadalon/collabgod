@@ -62,6 +62,22 @@ Pick one option and write down which one you used, because they measure differen
 
 **Option A, recommended: a small cloud server.** This is closest to how the product will run.
 
+On Google Cloud, [`deploy/gcloud.sh`](deploy/gcloud.sh) does the steps below for you. It needs the Google Cloud CLI logged in and a project with billing enabled. [Cloud Shell](https://shell.cloud.google.com) has the CLI already; clone the repository there and run the script from it. Run it from `spikes/relay`:
+
+```sh
+gcloud config set project YOUR_PROJECT_ID
+deploy/gcloud.sh up                                # the branch checked out here, at <ip>.sslip.io
+deploy/gcloud.sh up --hostname relay.example.com   # or a name of your own; it prints the address for the A record
+deploy/gcloud.sh update --branch main              # switch branch: reboots the VM, and lobbies in memory are lost
+deploy/gcloud.sh status                            # the VM, its relay URL and whether /healthz answers
+deploy/gcloud.sh logs                              # setup and relay output, without SSH
+deploy/gcloud.sh down                              # delete the VM and its firewall rule when the test is over
+```
+
+`up` creates an `e2-micro` VM running Debian 12 in `us-east1-b`, opens ports 80 and 443 to it, and waits until `https://<name>/healthz` answers. The first boot takes a few minutes. Set `RELAY_ZONE` or `RELAY_MACHINE` to change the zone or the machine type. The branch must be pushed, because the VM clones it from GitHub. The VM's address changes every time it is created, so a name of your own needs its DNS record updated after every `up`; the `sslip.io` name needs nothing. The VM costs money while it exists, so run `down` when you are finished. This is throwaway tooling for Phase 0; hosting the production relay is issue #37.
+
+To set a server up by hand, on any provider:
+
 1. Create the smallest Linux virtual machine your provider offers, in a region roughly between you. Open ports 80 and 443 to the internet.
 2. Give it a name. Either point a domain you own at its address, or use `<address-with-dashes>.sslip.io` (for 203.0.113.5, `203-0-113-5.sslip.io`), which resolves to that address with no setup.
 3. Install Node 22 or newer, Git and [Caddy](https://caddyserver.com/docs/install). Caddy obtains and renews a certificate by itself and passes WebSocket connections through.
