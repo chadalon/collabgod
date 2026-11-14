@@ -11,7 +11,7 @@ Node 22 or newer.
 ```sh
 cd spikes/relay
 npm ci
-npm test              # 19 tests over real sockets on this machine, about 2 seconds
+npm test              # 23 tests over real sockets on this machine, about 2 seconds
 npm run typecheck
 FC_SCALE=10 npm test  # the convergence test with 10 times as many random cases
 ```
@@ -25,7 +25,7 @@ FC_SCALE=10 npm test  # the convergence test with 10 times as many random cases
 | `src/client.ts` | A small client: create or join, send operations, receive them in order, ping, TLS details |
 | `src/replica-link.ts` | Runs a session-model `Replica` over a client connection |
 | `src/cli.ts` | `serve`, and the `host` and `join` commands for the test between two locations |
-| `test/relay.test.ts` | Lobbies, codes, the cap of two, ordering, catch-up, bad input |
+| `test/relay.test.ts` | Lobbies, codes, the cap of two, ordering, catch-up, direct messages and binary frames, bad input |
 | `test/convergence.test.ts` | Two `Replica`s editing at once over real sockets, then a late joiner, all ending in the state of the log |
 | `test/tls.test.ts` | The same over TLS with a throwaway certificate, and refusal of an untrusted one |
 
@@ -39,10 +39,16 @@ One WebSocket per person, JSON text frames.
 | client → relay | `{type: "join", code}` | Join by invite code. Case, spaces and dashes are ignored |
 | client → relay | `{type: "op", opId, op}` | Order this operation. `op` is any JSON value |
 | client → relay | `{type: "ping", t}` | Answered at once with `pong`, outside the log |
+| client → relay | `{type: "direct", to, data}` | Pass `data` to one other member, outside the log. Nothing is stored |
+| client → relay | binary frame: id length, `to` id, payload | Pass bytes to one other member, outside the log. Nothing is stored |
 | relay → client | `{type: "welcome", code, clientId, peers, log}` | You are in. `log` is everything ordered so far |
 | relay → client | `{type: "op", seq, opId, clientId, op}` | The next operation, sent to everyone including its sender |
 | relay → client | `{type: "peer-joined" \| "peer-left", clientId}` | The other person arrived or left |
-| relay → client | `{type: "error", code, message}` | `bad-message`, `unknown-room`, `room-full`, `already-joined`, `not-joined` or `duplicate-op` |
+| relay → client | `{type: "direct", from, data}` | A direct message from another member |
+| relay → client | binary frame: id length, `from` id, payload | Bytes from another member |
+| relay → client | `{type: "error", code, message}` | `bad-message`, `unknown-room`, `room-full`, `already-joined`, `not-joined`, `duplicate-op`, `unknown-peer` or `peer-busy` |
+
+Direct messages and binary frames were added for the sample-transfer spike ([issue #16](https://github.com/chadalon/collabgod/issues/16), [`../sample-transfer`](../sample-transfer)). They carry traffic that is not an edit: the relay stamps the sender in place of the recipient, the same as for operations, and forwards the frame without reading or keeping it. A binary frame starts with one byte giving the length of a client id, then that id in ASCII, then the payload. If the relay already holds more than 16 MiB (`maxBufferedBytes`) unsent for the recipient, it drops the binary frame and answers the sender `peer-busy`, so a sender that ignores flow control cannot use up the relay's memory.
 
 Invite codes are six characters from an alphabet without 0, O, 1, I, L or U, shown as `K7M-QX4`. The relay assigns each connection an id (`p1`, `p2`, ...) and stamps it on that connection's operations, so nobody can send an operation as someone else.
 
@@ -55,6 +61,22 @@ This is the part of issue #10 a cloud session cannot do. It needs both maintaine
 Pick one option and write down which one you used, because they measure different paths.
 
 **Option A, recommended: a small cloud server.** This is closest to how the product will run.
+
+On Google Cloud, [`deploy/gcloud.sh`](deploy/gcloud.sh) does the steps below for you. It needs the Google Cloud CLI logged in and a project with billing enabled. [Cloud Shell](https://shell.cloud.google.com) has the CLI already; clone the repository there and run the script from it. Run it from `spikes/relay`:
+
+```sh
+gcloud config set project YOUR_PROJECT_ID
+deploy/gcloud.sh up                                # the branch checked out here, at <ip>.sslip.io
+deploy/gcloud.sh up --hostname relay.example.com   # or a name of your own; it prints the address for the A record
+deploy/gcloud.sh update --branch main              # switch branch: reboots the VM, and lobbies in memory are lost
+deploy/gcloud.sh status                            # the VM, its relay URL and whether /healthz answers
+deploy/gcloud.sh logs                              # setup and relay output, without SSH
+deploy/gcloud.sh down                              # delete the VM and its firewall rule when the test is over
+```
+
+`up` creates an `e2-micro` VM running Debian 12 in `us-east1-b`, opens ports 80 and 443 to it, and waits until `https://<name>/healthz` answers. The first boot takes a few minutes. Set `RELAY_ZONE` or `RELAY_MACHINE` to change the zone or the machine type. The branch must be pushed, because the VM clones it from GitHub. The VM's address changes every time it is created, so a name of your own needs its DNS record updated after every `up`; the `sslip.io` name needs nothing. The VM costs money while it exists, so run `down` when you are finished. This is throwaway tooling for Phase 0; hosting the production relay is issue #37.
+
+To set a server up by hand, on any provider:
 
 1. Create the smallest Linux virtual machine your provider offers, in a region roughly between you. Open ports 80 and 443 to the internet.
 2. Give it a name. Either point a domain you own at its address, or use `<address-with-dashes>.sslip.io` (for 203.0.113.5, `203-0-113-5.sslip.io`), which resolves to that address with no setup.

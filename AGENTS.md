@@ -49,10 +49,15 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/relay` | `npm test` | Relay tests over real sockets on this machine, including TLS where `openssl` is installed |
 | `spikes/relay` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/relay` | `npm run relay -- serve` | Run a relay; `host` and `join` run the test between two locations (see its README) |
+| `spikes/relay` | `deploy/gcloud.sh up` | Put the relay on a Google Cloud VM with TLS for tests between two locations; `update`, `status`, `logs` and `down` manage it (needs `gcloud` and a project; see its README). CI runs `shellcheck` on these scripts |
 | `spikes/sample-index` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/sample-index` | `npm test` | Hashing, scanning, rescans, near matches and overlap on generated files |
 | `spikes/sample-index` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/sample-index` | `npm run samples -- scan <folder> --index <file>` | Index sample folders; `export`, `compare`, `near` and `generate` are in its README |
+| `spikes/sample-transfer` | `npm ci` | Install pinned dependencies (Node 22 or newer). Run `npm ci` in `spikes/relay` too: this spike imports it |
+| `spikes/sample-transfer` | `npm test` | Unit tests, and transfers through a real relay over sockets on this machine |
+| `spikes/sample-transfer` | `npm run typecheck` | Strict TypeScript check |
+| `spikes/sample-transfer` | `npm run transfer -- share` | `share` and `fetch` measure a transfer between two locations through a relay (see its README) |
 | `spikes/engine-toolchain` | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` | Configure; downloads pinned JUCE and Tracktion Engine (CMake 3.22 or newer, a C++20 compiler) |
 | `spikes/engine-toolchain` | `cmake --build build --config Release --parallel` | Build `engine_spike`. A cold build takes minutes; lower `--parallel` if the compiler runs out of memory |
 | `spikes/engine-toolchain` | `ctest --test-dir build -C Release --output-on-failure` | Render a tone and a file offline and play them through a simulated sound card, checking both; also checks that a MIDI device change still stops playback (a known Tracktion behaviour, #101). Needs no audio device |
