@@ -49,10 +49,15 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/relay` | `npm test` | Relay tests over real sockets on this machine, including TLS where `openssl` is installed |
 | `spikes/relay` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/relay` | `npm run relay -- serve` | Run a relay; `host` and `join` run the test between two locations (see its README) |
+| `spikes/relay` | `deploy/gcloud.sh up` | Put the relay on a Google Cloud VM with TLS for tests between two locations; `update`, `status`, `logs` and `down` manage it (needs `gcloud` and a project; see its README). CI runs `shellcheck` on these scripts |
 | `spikes/sample-index` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/sample-index` | `npm test` | Hashing, scanning, rescans, near matches and overlap on generated files |
 | `spikes/sample-index` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/sample-index` | `npm run samples -- scan <folder> --index <file>` | Index sample folders; `export`, `compare`, `near` and `generate` are in its README |
+| `spikes/sample-transfer` | `npm ci` | Install pinned dependencies (Node 22 or newer). Run `npm ci` in `spikes/relay` too: this spike imports it |
+| `spikes/sample-transfer` | `npm test` | Unit tests, and transfers through a real relay over sockets on this machine |
+| `spikes/sample-transfer` | `npm run typecheck` | Strict TypeScript check |
+| `spikes/sample-transfer` | `npm run transfer -- share` | `share` and `fetch` measure a transfer between two locations through a relay (see its README) |
 | `spikes/engine-toolchain` | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` | Configure; downloads pinned JUCE and Tracktion Engine (CMake 3.22 or newer, a C++20 compiler) |
 | `spikes/engine-toolchain` | `cmake --build build --config Release --parallel` | Build `engine_spike`. A cold build takes minutes; lower `--parallel` if the compiler runs out of memory |
 | `spikes/engine-toolchain` | `ctest --test-dir build -C Release --output-on-failure` | Render a tone and a file offline and play them through a simulated sound card, checking both; also checks that a MIDI device change still stops playback (a known Tracktion behaviour, #101). Needs no audio device |
@@ -64,7 +69,7 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/webview-ui` | `cmake --build build --config Release --parallel 2` | Build `webview_spike`. Two jobs on an 8 GB machine |
 | `spikes/webview-ui` | `ctest --test-dir build -C Release --output-on-failure` | Self-test: page serving, bridge contract, engine settling, seek, looping, and resuming after a MIDI device change. Needs no window or audio device |
 
-A new package or spike with tests gets its own job in `.github/workflows/ci.yml`, added to the `needs` list of the `CI passed` job, and its commands get rows in this table. Code that CI does not run is not protected by the required check.
+A new package or spike with tests gets its own job in `.github/workflows/ci.yml`, added to the `needs` list of the `CI passed` job, and its commands get rows in this table. Code that CI does not run is not protected by the required check. The two engine jobs are the exceptions to running every time, as decided by the `changes` job: the engine toolchain job builds only when `spikes/engine-toolchain/` or `ci.yml` changed, and the web view job when `spikes/webview-ui/`, `spikes/engine-toolchain/` (whose `cmake/EngineDependencies.cmake` it uses) or `ci.yml` changed. A job that depends on files outside its own folder needs those paths in that check.
 
 There is no application to build or run yet. That starts in Phase 1.
 
