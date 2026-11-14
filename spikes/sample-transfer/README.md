@@ -140,6 +140,13 @@ From this cloud session, on one machine: real sockets through a real relay, and 
 7. **What is left of the added delay is mostly one chunk.** An edit cannot overtake a frame already being sent, and a 64 KiB chunk takes 26 ms to cross a 20 Mbit/s link. That is why chunks are 64 KiB, not larger; the 44-byte header is still only 0.07 per cent.
 8. **Progress at 20 events a second is enough and cheap.** It is smooth enough for a bar on a clip when the interface eases between values at its own frame rate, and transfers here produced 20 to 22 a second. The last count of a burst is never lost, and `done` and `failed` are never delayed.
 
+## Results between two locations
+
+**Attempt 1, 2026-11-14 16:55 UTC, did not finish** (relay on a Google Cloud e2-micro in us-east1 from `../relay/deploy/gcloud.sh`; sharer on a home connection in Chapel Hill; fetcher in the same place on a phone hotspot that kept stalling). No throughput numbers, but two findings:
+
+1. **Resuming worked across real drops.** The fetcher's connection was closed three times, at 0.9, 5.5 and 6.5 per cent of a 200 MB file, and each time it rejoined and continued from the end of its partial file, as finding 2 expects.
+2. **The relay's heartbeat cannot tell a stalled connection from a dead one, and the cap turned that into a failure.** The relay log shows every close on a heartbeat tick: the connection had not answered a ping for 30 seconds. On the fourth drop the fetcher noticed first and rejoined while the relay still counted the old connection, so the lobby of two refused it with `room-full` and the CLI gave up. The CLI now retries rejoining for up to 90 seconds, which covers the relay's two missed heartbeats. For the production relay (#36, #48), a returning member should take over its old connection's place rather than wait for it to time out, and the heartbeat should allow for the long stalls of mobile connections.
+
 ## Questions for the maintainers
 
 - **Is 25 ms of added delay during a transfer acceptable?** It is the target for the delay-based window, and the measured cost was 24 to 41 ms. A lower target protects edits more and slows transfers on connections with a jittery baseline. RFC 6817 allows up to 100 ms, which would leave too little of NFR-1's 150 ms.

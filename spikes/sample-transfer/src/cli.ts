@@ -111,7 +111,7 @@ function bar(event: ProgressEvent): string {
   const fraction = size === 0 ? 0 : event.bytes / size;
   const width = 30;
   const filled = Math.round(fraction * width);
-  return `[${'#'.repeat(filled)}${'.'.repeat(width - filled)}] ${(fraction * 100).toFixed(1).padStart(5)}%  ${(event.bytes / MiB).toFixed(1)}/${(size / MiB).toFixed(1)} MiB  ${(event.bytesPerSecond / MB).toFixed(2)} MB/s  ${event.state}`;
+  return `[${'#'.repeat(filled)}${'.'.repeat(width - filled)}] ${(fraction * 100).toFixed(1).padStart(5)}%  ${(event.bytes / MiB).toFixed(1)}/${(size / MiB).toFixed(1)} MiB  ${(event.bytesPerSecond / MB).toFixed(2)} MB/s  ${event.state.padEnd(12)}`;
 }
 
 async function makeRandomFile(sizeMb: number): Promise<string> {
@@ -192,6 +192,29 @@ async function share(url: string): Promise<void> {
   await client.close();
 }
 
+/**
+ * Connect and join again after a dropped connection, retrying for up to 90 seconds.
+ * When this side notices the drop first, the relay can still count the old connection
+ * until it closes or misses two heartbeats (up to a minute), and refuses the new one
+ * with room-full. A failed connect on a patchy link is retried the same way.
+ */
+async function rejoin(url: string, code: string): Promise<{ client: RelayClient; peers: readonly string[] }> {
+  const deadline = performance.now() + 90_000;
+  for (let waitMs = 1_000; ; waitMs = Math.min(waitMs * 2, 10_000)) {
+    let next: RelayClient | undefined;
+    try {
+      next = await RelayClient.connect(url, connectOptions());
+      const welcome = await next.join(code);
+      return { client: next, peers: welcome.peers };
+    } catch (error) {
+      next?.terminate();
+      if (performance.now() + waitMs > deadline) throw error;
+      process.stderr.write(`Rejoining failed (${error instanceof Error ? error.message : String(error)}). Trying again in ${waitMs / 1000} s.\n`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
 async function fetch(url: string, code: string): Promise<void> {
   const dir = values.dir ?? join(tmpdir(), 'collabgod-received');
   const dropAt = values['drop-at-mb'] === undefined ? undefined : Number(values['drop-at-mb']) * MB;
@@ -256,8 +279,8 @@ async function fetch(url: string, code: string): Promise<void> {
       keepPings();
       const reconnectStart = performance.now();
       if (error.code === 'connection-closed') {
-        client = await RelayClient.connect(url, connectOptions());
-        const rejoined = await client.join(code);
+        const rejoined = await rejoin(url, code);
+        client = rejoined.client;
         source = rejoined.peers[0] ?? source;
       } else {
         const joined = await client.waitFor((message): message is Extract<typeof message, { type: 'peer-joined' }> => message.type === 'peer-joined', 120_000);
