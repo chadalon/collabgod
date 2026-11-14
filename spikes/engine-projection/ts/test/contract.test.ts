@@ -10,7 +10,7 @@ import { applyCommands, type Command } from '../src/commands';
 import { emptyDoc, type EngineDoc, firstDifference } from '../src/document';
 
 const dir = join(import.meta.dirname, '..', '..', 'contract', 'examples');
-const samples = '/any/folder';
+const samples = '/any/folder/';
 
 describe('contract examples', () => {
   const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
@@ -19,7 +19,7 @@ describe('contract examples', () => {
 
   for (const file of files) {
     it(file, () => {
-      const example = JSON.parse(readFileSync(join(dir, file), 'utf8').replaceAll('${samples}', samples)) as {
+      const example = JSON.parse(readFileSync(join(dir, file), 'utf8').replaceAll('${samples}/', samples)) as {
         commands: Command[];
         readback: EngineDoc;
         failedAt?: number;

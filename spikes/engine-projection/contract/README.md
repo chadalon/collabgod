@@ -34,7 +34,7 @@ Times are seconds on the edit's timeline. Ids are the model's. A batch is carrie
 | `{ "op": "clip.remove", "id" }` | no such clip |
 | `{ "op": "reset" }`: removes every track the model made | never |
 
-`file` is an absolute path on this machine. It goes from the TypeScript side to the engine on the same machine and nowhere else: never into the session, never over the network (AGENTS.md). `sampleHash` is the content identity the session uses (ADR-0008); the engine only stores it so the readback can report it.
+`file` is an absolute path on this machine, in the platform's own form: backslashes on Windows. The engine reports it as the operating system writes it, so a path sent with forward slashes on Windows reads back different and looks like drift (the Windows CI run caught this). Node's `path.resolve` gives the right form. It goes from the TypeScript side to the engine on the same machine and nowhere else: never into the session, never over the network (AGENTS.md). `sampleHash` is the content identity the session uses (ADR-0008); the engine only stores it so the readback can report it.
 
 The engine's first track, the probe, is not the model's. It never appears in a readback and no command can touch it.
 
@@ -52,4 +52,4 @@ Tracks in the order the edit holds them, after the probe. Clips sorted by id. Ev
 
 ## Examples
 
-Each file in `examples` holds `description`, `commands`, the `readback` expected after running them on an empty engine, and `failedAt` when a command is expected to fail. `${samples}` stands for a folder that holds `a.wav`, `b.wav` and `c.wav`; each test substitutes its own.
+Each file in `examples` holds `description`, `commands`, the `readback` expected after running them on an empty engine, and `failedAt` when a command is expected to fail. `${samples}/` stands for a folder that holds `a.wav`, `b.wav` and `c.wav`, with the platform's separator; each test substitutes its own.

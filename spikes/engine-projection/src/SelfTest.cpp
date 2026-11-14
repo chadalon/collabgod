@@ -170,12 +170,14 @@ public:
         files.sort();
         check (files.size() > 0, "found " + juce::String (files.size()) + " examples in " + dir.getFullPathName());
 
-        // Paths go into JSON strings, so backslashes on Windows must be escaped.
-        const auto samplesDir = samples.a.getParentDirectory().getFullPathName().replace ("\\", "\\\\");
+        // Paths are sent in the platform's own form (contract/README.md), so "${samples}/" becomes
+        // the folder and the native separator. They go into JSON strings, so backslashes are escaped.
+        const auto samplesDir = (samples.a.getParentDirectory().getFullPathName() + juce::File::getSeparatorString())
+                                    .replace ("\\", "\\\\");
 
         for (auto& file : files)
         {
-            const auto example = juce::JSON::parse (file.loadFileAsString().replace ("${samples}", samplesDir));
+            const auto example = juce::JSON::parse (file.loadFileAsString().replace ("${samples}/", samplesDir));
             projector.apply (juce::Array<juce::var> { cmd ({ { "op", "reset" } }) });
             const auto r = projector.apply (example["commands"]);
             const int expectedFailure = example.hasProperty ("failedAt") ? static_cast<int> (example["failedAt"]) : -1;
