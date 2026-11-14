@@ -51,12 +51,17 @@ Phase 0 spikes answer these before the decision is accepted:
 
 ## Findings so far
 
-**Issue #8, web view at 60 fps** (`spikes/webview-ui`, in progress). The pieces work together: a TypeScript page in JUCE 9's web view draws 10,000 clips with WebGL2, and Tracktion Engine streams the playhead and stereo meters to it on every display refresh, with a contract both sides test against. Whether it holds 60 fps on Windows and macOS is still open: that needs the benchmark run on both maintainers' machines, and this section gets the numbers then. What is already known:
+**Issue #8, web view at 60 fps** (`spikes/webview-ui`): **confirmed.** A TypeScript page in JUCE 9's web view draws 10,000 clips with WebGL2, and Tracktion Engine streams the playhead and stereo meters to it on every display refresh. On 2026-11-14 it held 60 fps in every phase of the benchmark on both maintainer machines, with no frame over 20 ms:
+- Windows: WebView2 157, RTX 5080
+- Intel MacBook: WKWebView on macOS 13.7.2
+
+The phases included panning and zooming across all clips, 256 extra meter levels per frame, and re-uploading every clip to the GPU each frame. The page's own work per frame was under half a millisecond. A command to the engine was heard 16 ms later at the median on both, which is one display frame. The web view part of this ADR holds. Also learned:
 
 - WebGL2 is the drawing floor. WKWebView gets WebGPU only from macOS 26, and the Intel Mac on macOS 13.7 cannot run it; WebView2 has it on Windows. The interface draws with WebGL2, and anything built on WebGPU needs a WebGL2 path too.
 - WebKit is stricter than Chromium about shaders: it refused to link one that Chromium would accept. Every shader is tested in both web views.
 - WebKit hides the GPU's name, so a report from a Mac cannot say which GPU drew it.
-- The bridge is not the bottleneck on Windows or macOS: on the CI runners a native call came back in under half a millisecond at the median, and a seek was heard about one frame after it was sent.
-- Engine frames and drawn frames are not in step: on the macOS runner a quarter of drawn frames had no new engine data. The interface animates the playhead from positions and timestamps, not by counting events, or asks C++ for data as it draws each frame, which kept every frame fresh on both runners.
+- The bridge is not the bottleneck: a native call came back in 0.1 ms on Windows and under 1 ms on the Mac at the median.
+- Engine frames and drawn frames are not guaranteed to be in step (4% of drawn frames on the Mac had no new engine data, a quarter on a CI runner). The interface animates the playhead from positions and timestamps, not by counting events. Alternatively it asks C++ for data as it draws each frame, which kept every frame fresh everywhere.
+- The canvas trails a window resize by a frame, briefly showing the web view's own background. The interface redraws as soon as the size changes, and the web view's background colour matches the page.
 - The engine's start-up is more than the playback context: its own MIDI device scans can land after the context exists and stop the transport. The host waits for both to go quiet and resumes a transport that stops on its own (#101).
 - On Windows the web view must be asked for explicitly: JUCE's default there is still Internet Explorer. The spike links the WebView2 loader statically, from the SDK downloaded at configure time.
