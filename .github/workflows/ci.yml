@@ -111,8 +111,43 @@ jobs:
       - run: shellcheck --version
       - run: shellcheck spikes/relay/deploy/*.sh
 
+  # The engine build takes minutes; everything else takes seconds. Build it only when something it uses changed.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      engine: ${{ steps.decide.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: decide
+        name: Decide whether the engine toolchain must build
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then base=$PR_BASE; else base=$PUSH_BEFORE; fi
+          # A new branch pushes an all-zero "before"; a force push can name a commit that is gone.
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No base commit to compare with, so everything builds."
+            echo "engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Changed since $base:"
+          git diff --name-only "$base" HEAD | tee changed.txt
+          if grep -qE '^(spikes/engine-toolchain/|\.github/workflows/ci\.yml$)' changed.txt; then
+            echo "engine=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing the engine toolchain uses changed, so it is skipped."
+            echo "engine=false" >> "$GITHUB_OUTPUT"
+          fi
+
   engine-toolchain-spike:
     name: Engine toolchain spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -154,7 +189,7 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, engine-toolchain-spike, shell-scripts]
+    needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, changes, engine-toolchain-spike, shell-scripts]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded
@@ -163,5 +198,8 @@ jobs:
           test "${{ needs.relay-spike.result }}" = "success"
           test "${{ needs.sample-index-spike.result }}" = "success"
           test "${{ needs.sample-transfer-spike.result }}" = "success"
-          test "${{ needs.engine-toolchain-spike.result }}" = "success"
           test "${{ needs.shell-scripts.result }}" = "success"
+          # The engine build may be skipped, but only because change detection succeeded and said so.
+          test "${{ needs.changes.result }}" = "success"
+          engine="${{ needs.engine-toolchain-spike.result }}"
+          test "$engine" = "success" || { test "$engine" = "skipped" && test "${{ needs.changes.outputs.engine }}" = "false"; }
