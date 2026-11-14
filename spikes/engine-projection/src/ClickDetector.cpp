@@ -23,7 +23,7 @@ void ClickDetectorPlugin::initialise (const te::PluginInitialisationInfo& info)
     // Called when a graph is built, possibly while the old graph still runs this
     // plugin on the audio thread, so only the atomic is touched. The carried samples
     // are deliberately kept: a discontinuity across a graph swap is what we look for.
-    sampleRate.store (info.sampleRate);
+    rate.store (info.sampleRate);
 }
 
 void ClickDetectorPlugin::arm()
@@ -31,16 +31,16 @@ void ClickDetectorPlugin::arm()
     armRequested.fetch_add (1);
 }
 
-void ClickDetectorPlugin::prepareCapture (double seconds, double rate)
+void ClickDetectorPlugin::prepareCapture (double seconds, double captureSampleRate)
 {
-    const auto length = static_cast<int> (seconds * rate);
+    const auto length = static_cast<int> (seconds * captureSampleRate);
     auto l = std::make_unique<std::vector<float>> (static_cast<size_t> (length), 0.0f);
     auto r = std::make_unique<std::vector<float>> (static_cast<size_t> (length), 0.0f);
 
     captureLength.store (0);  // the audio thread stops writing before the pointers change
     captureLeft.store (l->data());
     captureRight.store (r->data());
-    captureRate = rate;
+    captureRate = captureSampleRate;
     captureStorage.push_back (std::move (l));
     captureStorage.push_back (std::move (r));
     captureLength.store (length);
@@ -61,7 +61,7 @@ juce::AudioBuffer<float> ClickDetectorPlugin::getCapture() const
 ClickDetectorPlugin::Counts ClickDetectorPlugin::getCounts() const
 {
     Counts c;
-    c.seconds = static_cast<double> (samplesWatched.load()) / sampleRate.load();
+    c.seconds = static_cast<double> (samplesWatched.load()) / rate.load();
     c.probeClicks = probeClicks.load();
     c.probeGaps = probeGaps.load();
     c.maxProbeStep = maxProbeStep.load();
@@ -107,7 +107,7 @@ void ClickDetectorPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     const int start = fc.bufferStartSample, num = fc.bufferNumSamples;
     const float* l = fc.destBuffer->getReadPointer (0, start);
     const float* r = fc.destBuffer->getReadPointer (1, start);
-    const double rate = sampleRate.load();
+    const double sampleRateNow = rate.load();
     const double blockStartTime = fc.editTime.getStart().inSeconds();
     float maxStep = maxProbeStep.load();
 
@@ -130,7 +130,7 @@ void ClickDetectorPlugin::applyToBuffer (const te::PluginRenderContext& fc)
             if (step > clickStep && left.holdOff == 0)
             {
                 probeClicks.fetch_add (1);
-                noteEvent (blockStartTime + i / rate);
+                noteEvent (blockStartTime + i / sampleRateNow);
                 left.holdOff = eventHoldOffSamples;
             }
 
@@ -138,7 +138,7 @@ void ClickDetectorPlugin::applyToBuffer (const te::PluginRenderContext& fc)
             if (left.silentRun == gapSamples && left.holdOff == 0)
             {
                 probeGaps.fetch_add (1);
-                noteEvent (blockStartTime + i / rate);
+                noteEvent (blockStartTime + i / sampleRateNow);
                 left.holdOff = eventHoldOffSamples;
             }
 
@@ -165,7 +165,7 @@ void ClickDetectorPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     {
         float* cl = captureLeft.load();
         float* cr = captureRight.load();
-        const auto first = static_cast<int64_t> (std::llround (blockStartTime * rate));
+        const auto first = static_cast<int64_t> (std::llround (blockStartTime * sampleRateNow));
 
         for (int i = 0; i < num; ++i)
         {

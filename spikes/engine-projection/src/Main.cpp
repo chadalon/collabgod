@@ -15,13 +15,6 @@
 
 #include "Host.h"
 
-namespace projection
-{
-int serve (bool simulated, Options);
-int selfTest (const juce::File& outFolder, Options);
-int bench (const juce::File& outFolder, bool deviceAudio, Options);
-}
-
 namespace
 {
 juce::File outFolder (const juce::StringArray& args, const char* fallback)

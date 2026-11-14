@@ -87,7 +87,7 @@ public:
     static constexpr int eventHoldOffSamples = 256;
 
 private:
-    std::atomic<double> sampleRate { 44100.0 };
+    std::atomic<double> rate { 44100.0 };  // not Plugin::sampleRate, which is not atomic
 
     std::atomic<int> armRequested { 0 }, armSeen { 0 };
     std::atomic<int64_t> samplesWatched { 0 };

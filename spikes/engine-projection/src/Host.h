@@ -130,6 +130,11 @@ struct Options
     bool realTimeNodes = true;   ///< play clips without proxies, with WaveNodeRealTime (README finding 4)
 };
 
+/** The three commands (Main.cpp dispatches to them). */
+int serve (bool simulated, Options);
+int selfTest (const juce::File& outFolder, Options);
+int bench (const juce::File& outFolder, bool deviceAudio, Options);
+
 /** Writes a line to stderr, prefixed with seconds since start. Message thread only. */
 void log (const juce::String&);
 
