@@ -88,7 +88,7 @@ Its options: `--seconds`, `--rate`, `--tracks`, `--clips`, `--samples <folder>` 
 
 ## Findings
 
-Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time scheduling) with the simulated sound card at 44.1 kHz and 441 samples, unless a finding says otherwise. Findings 4, 5, 6 and 10 end with what Chad's Windows machine showed, and finding 12 sums it up. The Mac is still to come (below).
+Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time scheduling) with the simulated sound card at 44.1 kHz and 441 samples, unless a finding says otherwise. Findings 4, 5, 6 and 10 end with what Chad's Windows machine showed, and finding 12 sums it up. Finding 13 is the Mac.
 
 1. **The projection works for tracks and audio clips.** Edits in the model change what Tracktion plays: in self-test B, half a second before the playhead got there, a clip was moved to another track and later time, another removed, and a third added on a new track. The recording by edit time had the moved clip only at its new place (-6 dB where it should be, below -120 dB where it was), nothing where the removed one was, and the added one where it was put. In the end-to-end tests, 25 random sequences of 40 model edits each (adds, moves, resizes, removes, undos, track adds and removes) matched the projection exactly after every batch, read back from Tracktion's own objects. 300 longer sequences against the reference semantics did the same. Applying the diff of 2,000 random pairs of documents always gave the target.
 
@@ -145,6 +145,18 @@ Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time s
 
 12. **On Chad's Windows machine, edits during playback did not cause a dropout.** Windows Audio (shared mode) through a Focusrite USB interface, 44.1 kHz, 441 samples per block, all 32 threads for audio, other audio apps closed. With generated tones, with `--tracktion-wave-nodes`, and with a folder of Chad's own samples: 287 edits in 30 s plus a rebuild from scratch while playing, and in every phase 0 device dropouts, 0 probe clicks or gaps, the left tone never more than 1 dB down, and the engine matching the model at the end. Listening on headphones agreed. Model to engine took a median of 3.7 to 4.0 ms per edit, round trip through the engine process, and p95 about 6 ms. Exclusive mode, tried while looking into finding 11, dropped out constantly at its default block size; that is a device setting for #27, not a projection result.
 
+13. **On Chad's Mac, edits during playback caused dropouts with Tracktion's default thread pool, and one audio thread cleared them.** Intel MacBook Pro, 4 cores, 8 GB, macOS 13, built-in output through CoreAudio, 44.1 kHz, 512 samples per block, `WaveNodeRealTime`, other apps open (so this is a small, busy machine, and the counts are small). The click detector and the recording of the output stayed clean in every run, and they could not have shown this: they measure what the engine generates, and a late callback still generates a clean block. The first runs printed PASS and Chad heard a large dropout towards the end of the edits phase. The check only counted dropouts where the device has its own counter, which CoreAudio does not. `Host::getXRuns` now uses the device manager's count, which adds the callbacks JUCE times as longer than their block, and the check says FAIL. Late callbacks during the edits phase (the quiet and after phases were 0 in every run):
+
+   | Audio CPUs | Late callbacks, one run each | Slowest graph rebuild | Callback load (smoothed) |
+   | --- | --- | --- | --- |
+   | 4 (default) | 6, 1, 5, 3, 4 | 1,021 to 1,055 ms | up to 90 to 100% |
+   | 2 | 3, 5, 6, 5 | 1,024 to 1,033 ms | up to 100% |
+   | 1 | 0, 0, 0, 0 | 4.7 to 11.9 ms | 5% |
+   | Heavier session (16 tracks, 200 clips), 4 | 3, 4 | about 1,025 ms | up to 90% |
+   | Heavier session, 1 | 0, 0 | 7.9 to 8.4 ms | 11% |
+
+   Six of six runs with one audio CPU had no late callback, and every run with more than one had at least one. Two CPUs was no better than four, so this is one thread against several, not a gradient (an earlier version of this finding said otherwise, from fewer runs). The median graph rebuild was the same in every run (2.7 to 2.8 ms, 4.6 to 5.7 ms in the heavier session); what differs is a single rebuild of about 1.02 to 1.05 s, in every run with a thread pool and none without. A fixed second is not what scheduling noise looks like, so something waits with a time-out of about that length when worker threads exist. **Not found:** a `sample` of the engine during an edit storm showed the audio thread inside `LockFreeMultiThreadedNodePlayer::process` and `ThreadPoolSemHybrid::waitForFinalNode` for a few dozen samples, but no frame holding anything near a second, so the sample did not catch the stall, and the cause is unproven. The simple explanation, that the audio thread waits for worker threads that the operating system has not run because a 4-core machine has nothing to spare, fits the data and Windows's 32 free threads, but has not been shown. What it does not say: that one thread is enough. These sessions are generated tones with no plugins, and a single audio thread only used 5 to 11% of its block here. #27 owns the thread setting and should test it with plugin load and other audio apps running.
+
 ## Cost and recommendation
 
 **Keep the TypeScript model as the source of truth, with the engine as a projection.** Do not switch to the fallback in ADR-0002 (Tracktion's edit as the source of truth).
@@ -159,6 +171,8 @@ None of these is made worse by the projection. The fallback would put the same e
 
 On Windows, neither happened (findings 4, 6 and 12): no dropouts, and a rebuild of 29 ms per edit at 5,000 clips, which batching per frame covers. What would change the recommendation: if the Mac drops out during the check even with `WaveNodeRealTime`, or if the graph rebuild on a real session is slow enough to hurt the interface even when batched. Either would point at Tracktion, not at the projection, and would be a reason to look at the fallback engine choices in ADR-0002 rather than at the source-of-truth choice.
 
+On the Mac (finding 13) the condition above was met in part: with other apps open on a 4-core machine, edits during playback caused late audio callbacks with `WaveNodeRealTime` and Tracktion's default thread pool, and none with one audio thread. The recommendation stands, because it points at Tracktion's threading and not at the projection or the fallback, and it comes with a setting that cleared it. It adds a requirement: the app needs a thread count it can set and a count of late callbacks in its own diagnostics, because on a Mac the click detector and the device cannot report them. The unexplained one-second graph rebuild that goes with the thread pool needs a cause before the default is trusted on any machine.
+
 ## What is left (needs Chad's machines)
 
 The time box is spent on what a cloud machine can show. These need the real devices, and the issue stays open until they are done:
@@ -167,7 +181,8 @@ The time box is spent on what a cloud machine can show. These need the real devi
 - [x] Windows: `npm run dropout-check`, listening on headphones. Then again with `--tracktion-wave-nodes`, to hear and count the difference. Then with `--samples` pointing at a folder of real samples (finding 12).
 - [x] Windows: `engine_projection bench`, for the cost table on a real CPU (finding 6).
 - [x] Windows: plug a MIDI controller in during the edits phase once (finding 10).
-- [ ] Mac: the same four. Its device has no dropout counter (engine-toolchain), so listening is the only measure there besides the click detector and the recording of the output.
+- [x] Mac: `ctest` (passes), `npm test` with the binary (29 of 29), `bench` (finding 13's rebuild costs: 3.6 ms at 100 clips, 14 ms at 1,000, 69 ms at 5,000) and the dropout check with different thread counts (finding 13). Not done on the Mac: `--tracktion-wave-nodes`, `--samples`, and a MIDI controller during the edits.
+- [ ] Find the cause of the one-second graph rebuild with a thread pool (finding 13).
 - [ ] Post the dropout check's summary tables and the bench tables on #11, and attach the JSON reports.
 
 ## Not covered
