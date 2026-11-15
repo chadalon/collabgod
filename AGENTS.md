@@ -58,6 +58,12 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/sample-transfer` | `npm test` | Unit tests, and transfers through a real relay over sockets on this machine |
 | `spikes/sample-transfer` | `npm run typecheck` | Strict TypeScript check |
 | `spikes/sample-transfer` | `npm run transfer -- share` | `share` and `fetch` measure a transfer between two locations through a relay (see its README) |
+| `spikes/plugin-inventory` | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` | Configure; downloads pinned VST3 interface headers only (CMake 3.22 or newer, a C++20 compiler) |
+| `spikes/plugin-inventory` | `cmake --build build --config Release --parallel` | Build `plugin_scan` and the fake test plugins, in seconds |
+| `spikes/plugin-inventory` | `ctest --test-dir build -C Release --output-on-failure` | Scan fake plugins that crash, hang or misreport, each in its own process, and check the inventory |
+| `spikes/plugin-inventory` | `build/plugin_scan scan --label NAME --out FILE` | Scan this machine's VST3 folders (`build/Release/plugin_scan.exe` on Windows; see its README) |
+| `spikes/plugin-inventory/compare` | `npm ci`, `npm test`, `npm run typecheck` | Install, test and check the inventory comparison and identity rule (Node 22 or newer) |
+| `spikes/plugin-inventory/compare` | `npm run inventory -- compare A.json B.json --out report.md` | Compare two machines' inventories; `summary A.json` checks one |
 | `spikes/engine-toolchain` | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` | Configure; downloads pinned JUCE and Tracktion Engine (CMake 3.22 or newer, a C++20 compiler) |
 | `spikes/engine-toolchain` | `cmake --build build --config Release --parallel` | Build `engine_spike`. A cold build takes minutes; lower `--parallel` if the compiler runs out of memory |
 | `spikes/engine-toolchain` | `ctest --test-dir build -C Release --output-on-failure` | Render a tone and a file offline and play them through a simulated sound card, checking both; also checks that a MIDI device change still stops playback (a known Tracktion behaviour, #101). Needs no audio device |

@@ -1,0 +1,306 @@
+{
+  "schema": "collabgod.plugin-inventory/1",
+  "scanner": "0.1.0",
+  "label": "fixtures",
+  "machine": {
+    "os": "linux",
+    "osVersion": "6.18.44-fc-v470",
+    "arch": "x86_64"
+  },
+  "scannedAt": "2026-11-14T19:39:33Z",
+  "timeoutMs": 3000,
+  "roots": [
+    {
+      "path": "fixtures/scan",
+      "bundles": 9
+    }
+  ],
+  "problems": [],
+  "bundles": [
+    {
+      "root": 0,
+      "path": "Vendor/Sub/nested.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": null,
+      "probe": {
+        "result": "ok",
+        "binary": "Contents/x86_64-linux/nested.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 3,
+        "binaryVersion": null,
+        "factory": {
+          "vendor": "CollabGod Tests",
+          "url": "https://github.com/chadalon/collabgod",
+          "email": "",
+          "flags": 16
+        },
+        "classes": [
+          {
+            "cid": "11111111222222223333333344444444",
+            "category": "Audio Module Class",
+            "name": "CollabGod Nested",
+            "vendor": "CollabGod Tests",
+            "version": "2.1",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "Instrument|Synth",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          },
+          {
+            "cid": "11111111222222223333333344444445",
+            "category": "Component Controller Class",
+            "name": "CollabGod Nested Controller",
+            "vendor": "CollabGod Tests",
+            "version": "2.1",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          }
+        ]
+      }
+    },
+    {
+      "root": 0,
+      "path": "crash-on-load.vst3",
+      "layout": "bundle",
+      "ending": "crashed",
+      "elapsedMs": 5,
+      "probeWritten": false,
+      "crash": "signal 11 (Segmentation fault)",
+      "moduleInfo": null,
+      "probe": null
+    },
+    {
+      "root": 0,
+      "path": "crash-on-unload.vst3",
+      "layout": "bundle",
+      "ending": "crashed",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "crash": "signal 11 (Segmentation fault)",
+      "moduleInfo": null,
+      "probe": {
+        "result": "ok",
+        "binary": "Contents/x86_64-linux/crash-on-unload.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 3,
+        "binaryVersion": null,
+        "factory": {
+          "vendor": "CollabGod Tests",
+          "url": "https://github.com/chadalon/collabgod",
+          "email": "",
+          "flags": 16
+        },
+        "classes": [
+          {
+            "cid": "C0000000000000000000000000000003",
+            "category": "Audio Module Class",
+            "name": "Unload Crasher",
+            "vendor": "CollabGod Tests",
+            "version": "1.0",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "Instrument|Synth",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          },
+          {
+            "cid": "C0000000000000000000000000000004",
+            "category": "Component Controller Class",
+            "name": "Unload Crasher Controller",
+            "vendor": "CollabGod Tests",
+            "version": "1.0",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          }
+        ]
+      }
+    },
+    {
+      "root": 0,
+      "path": "empty.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": null,
+      "probe": {
+        "result": "no-binary",
+        "error": "no binary for this architecture in the bundle",
+        "binary": "",
+        "entryPoint": "not reached",
+        "loadMs": 0,
+        "factoryInterface": 0,
+        "binaryVersion": null,
+        "factory": null,
+        "classes": []
+      }
+    },
+    {
+      "root": 0,
+      "path": "factory-v1.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": null,
+      "probe": {
+        "result": "ok",
+        "binary": "Contents/x86_64-linux/factory-v1.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 1,
+        "binaryVersion": null,
+        "factory": {
+          "vendor": "CollabGod Tests",
+          "url": "https://github.com/chadalon/collabgod",
+          "email": "",
+          "flags": 16
+        },
+        "classes": [
+          {
+            "cid": "0BADF00D000000010000000200000003",
+            "category": "Audio Module Class",
+            "name": "CollabGod Old",
+            "vendor": "",
+            "version": "",
+            "sdkVersion": "",
+            "subCategories": "",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "v1"
+          },
+          {
+            "cid": "0BADF00D000000010000000200000004",
+            "category": "Component Controller Class",
+            "name": "CollabGod Old Controller",
+            "vendor": "",
+            "version": "",
+            "sdkVersion": "",
+            "subCategories": "",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "v1"
+          }
+        ]
+      }
+    },
+    {
+      "root": 0,
+      "path": "good.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": "{\n  \"Name\": \"good\",\n  \"Version\": \"1.0.0\",\n  \"Factory Info\": { \"Vendor\": \"CollabGod Tests\", \"URL\": \"\", \"E-Mail\": \"\", \"Flags\": { \"Unicode\": true, \"Classes Discardable\": false, \"Component Non Discardable\": false, }, },\n  \"Compatibility\": [ { \"New\": \"1A2B3C4D5E6F708192A3B4C5D6E7F809\", \"Old\": [ \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", ], }, ],\n  \"Classes\": [\n    { \"CID\": \"1A2B3C4D5E6F708192A3B4C5D6E7F809\", \"Category\": \"Audio Module Class\", \"Name\": \"CollabGod Test Synth\", \"Vendor\": \"CollabGod Tests\", \"Version\": \"1.0.0\", \"SDKVersion\": \"VST 3.8.1\", \"Sub Categories\": [ \"Instrument\", \"Synth\", ], \"Class Flags\": 0, \"Cardinality\": 2147483647, \"Snapshots\": [ ], },\n  ],\n}\n",
+      "probe": {
+        "result": "ok",
+        "binary": "Contents/x86_64-linux/good.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 3,
+        "binaryVersion": null,
+        "factory": {
+          "vendor": "CollabGod Tests",
+          "url": "https://github.com/chadalon/collabgod",
+          "email": "",
+          "flags": 16
+        },
+        "classes": [
+          {
+            "cid": "1A2B3C4D5E6F708192A3B4C5D6E7F809",
+            "category": "Audio Module Class",
+            "name": "CollabGod Test Synth",
+            "vendor": "CollabGod Tests",
+            "version": "1.0.0",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "Instrument|Synth",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          },
+          {
+            "cid": "1A2B3C4D5E6F708192A3B4C5D6E7F80A",
+            "category": "Component Controller Class",
+            "name": "CollabGod Test Synth Controller",
+            "vendor": "CollabGod Tests",
+            "version": "1.0.0",
+            "sdkVersion": "VST 3.8.1",
+            "subCategories": "",
+            "classFlags": 0,
+            "cardinality": 2147483647,
+            "infoLevel": "unicode"
+          }
+        ]
+      }
+    },
+    {
+      "root": 0,
+      "path": "hang-on-load.vst3",
+      "layout": "bundle",
+      "ending": "timed-out",
+      "elapsedMs": 3000,
+      "probeWritten": false,
+      "moduleInfo": null,
+      "probe": null
+    },
+    {
+      "root": 0,
+      "path": "no-export.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": null,
+      "probe": {
+        "result": "no-factory-export",
+        "error": "the module does not export GetPluginFactory",
+        "binary": "Contents/x86_64-linux/no-export.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 0,
+        "binaryVersion": null,
+        "factory": null,
+        "classes": []
+      }
+    },
+    {
+      "root": 0,
+      "path": "null-factory.vst3",
+      "layout": "bundle",
+      "ending": "exited",
+      "elapsedMs": 5,
+      "probeWritten": true,
+      "exitCode": 0,
+      "moduleInfo": null,
+      "probe": {
+        "result": "factory-null",
+        "error": "GetPluginFactory returned null",
+        "binary": "Contents/x86_64-linux/null-factory.so",
+        "entryPoint": "ModuleEntry",
+        "loadMs": 0,
+        "factoryInterface": 0,
+        "binaryVersion": null,
+        "factory": null,
+        "classes": []
+      }
+    }
+  ],
+  "durationMs": 3045
+}
