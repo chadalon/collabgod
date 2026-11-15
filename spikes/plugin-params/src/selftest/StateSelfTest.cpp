@@ -275,13 +275,33 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         pump (100);
         stateCheck (near (a.value (level), levelBefore, 1.0e-6f), "A's host still thinks Level is what it was",
                     juce::String (a.value (level), 3));
-        const bool synced = waitFor ([&] { return sameState ({ &a, &b }) && near (a.value (level), b.value (level), 1.0e-5f)
+        const bool synced = waitFor ([&] { return ! a.session.getState().isTransferring() && ! b.session.getState().isTransferring()
+                                                  && near (a.value (level), b.value (level), 1.0e-6f) && near (a.value (pitch), b.value (pitch), 1.0e-6f)
                                                   && ! near (a.value (level), levelBefore, 1.0e-4f); }, 15000);
         stateCheck (synced, "B finds the new Level and Pitch, and A's host learns them from B",
-                    "Level A " + juce::String (a.value (level), 3) + ", B " + juce::String (b.value (level), 3) + ", before "
-                    + juce::String (levelBefore, 3) + "; Pitch A " + juce::String (a.value (pitch), 3) + ", B " + juce::String (b.value (pitch), 3)
-                    + "; states " + hashOf (a) + " and " + hashOf (b)
-                    + (a.session.getState().isTransferring() || b.session.getState().isTransferring() ? ", still transferring" : ""));
+                    "Level A " + juce::String (a.value (level), 6) + ", B " + juce::String (b.value (level), 6) + ", before "
+                    + juce::String (levelBefore, 3) + "; Pitch A " + juce::String (a.value (pitch), 6) + ", B " + juce::String (b.value (pitch), 6));
+
+        // Whether A's plugin, set by its host to the values it already held, still saves the bytes
+        // B loaded. If not, hashes stop matching for this plugin until its next change (finding 3).
+        pump (500);
+        const auto sa = a.session.getState().read(), sb = b.session.getState().read();
+        if (sa.hash == sb.hash)
+        {
+            print ("STATE silent preset: A and B save the same bytes afterwards");
+        }
+        else
+        {
+            const auto [ca, ignoreA] = spike::StateHost::splitVst3State (sa.bytes);
+            const auto [cb, ignoreB] = spike::StateHost::splitVst3State (sb.bytes);
+            size_t at = 0;
+            while (at < ca.getSize() && at < cb.getSize() && ca[at] == cb[at])
+                ++at;
+            print ("STATE silent preset: A and B save different bytes afterwards (component " + juce::String ((int) ca.getSize()) + " and "
+                   + juce::String ((int) cb.getSize()) + " bytes, first difference at byte " + juce::String ((int) at) + ": "
+                   + juce::String::toHexString (ca.getData(), (int) std::min<size_t> (ca.getSize(), 128)) + " / "
+                   + juce::String::toHexString (cb.getData(), (int) std::min<size_t> (cb.getSize(), 128)) + ")");
+        }
         stateCheck (b.session.getState().getSync().stats().paramsDiscovered >= 2, "B counted them",
                     juce::String ((juce::int64) b.session.getState().getSync().stats().paramsDiscovered));
         const double hz = hzOf (a, pitch);
