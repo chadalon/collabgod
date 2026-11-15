@@ -187,6 +187,7 @@ public:
     std::optional<float> value (const std::string& param) const;
     std::optional<Stamp> stamp (const std::string& param) const;
     bool isHeldHere (const std::string& param) const;
+    bool anyHeldHere() const;
     /** Who else holds the control right now, or empty. */
     std::string heldBy (const std::string& param) const;
     const Stats& stats() const noexcept      { return counters; }
@@ -209,9 +210,13 @@ private:
     };
 
     static constexpr std::size_t maxRecent = 32;
+    /** After a state is applied, a plugin may report the values it loaded much later than it echoes one
+        value: seconds, if loading kept the message thread busy. A person setting a control to exactly its
+        previous value within this time is the only thing it mistakes for an echo. */
+    static constexpr double stateEchoWindowMs = 5000.0;
 
     void receiveValue (Param&, const Change&, double nowMs, std::vector<Apply>&);
-    void rememberApplied (Param&, float value, double nowMs);
+    void rememberApplied (Param&, float value, double nowMs, double windowMs = 0.0);
     static void dropOlderPending (Param&, const Stamp&, float newValue, Stats&);
 
     Stamp nextStamp();

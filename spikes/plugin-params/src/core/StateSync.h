@@ -53,15 +53,16 @@ struct StateOptions
     double quietMs = 300.0;
     /** A hint schedules a read this long after it, so a burst of hints costs one read. */
     double hintDelayMs = 30.0;
+    /** A change is confirmed only once no parameter has moved here for this long: a value set on a plugin
+        reaches its saved state only when it next processes audio, so a read straight after can miss it. */
+    double paramQuietMs = 100.0;
     /** Read the state this often to find changes the plugin does not hint at. 0 turns polling off. */
     double pollMs = 0.0;
     /** Polling may take at most this share of the time; slow reads stretch the interval. */
     double pollBudget = 0.02;
-    /** After applying another member's state, changes are taken as the plugin settling for this long,
-        unless something is done here first. */
+    /** After applying another member's state, changes are taken as the plugin settling for this long
+        (or two polling intervals, if longer), unless a person does something here first. */
     double settleMs = 1500.0;
-    /** Hints this soon after applying a state are the plugin reacting to the load, not a person. */
-    double settleHintGraceMs = 250.0;
     /** A member whose state differs from an announced one reads it once more after this long before fetching,
         because a parameter set from elsewhere reaches some plugins' saved state only once they process audio. 0 fetches at once. */
     double recheckMs = 150.0;
@@ -207,6 +208,7 @@ private:
     Step matchedHere();
     StateOffer announce (const std::string& hash, std::uint64_t size, ParamSync::Snapshot);
     bool prompted (double nowMs) const;
+    double confirmAtMs() const;
 
     ParamSync& params;
     ReadParams readParams;

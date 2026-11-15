@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Spike for issue #12. Throwaway code: product code never includes this.
+// Spike for issues #12 and #13. Throwaway code: product code never includes this.
 
 #include "PluginSession.h"
 
@@ -23,12 +23,28 @@ PluginSession::PluginSession (te::Engine& e, const juce::String& memberId, psync
     edit = te::Edit::createSingleTrackEdit (engine);
     edit->getMasterVolumePlugin()->setVolumeDb (0.0f);
     hello.member = member;
+
+    state.send = [this] (const juce::String& m)
+    {
+        sentBytes += (std::uint64_t) m.getNumBytesAsUTF8();
+        if (send)
+            send (m);
+    };
+    state.log = [this] (const juce::String& s) { if (log) log (s); };
+    state.gestureHeld = [this] { return sync.anyHeldHere(); };
+    state.applyParams = [this] (const std::vector<psync::Apply>& values)
+    {
+        for (const auto& a : values)
+            applyRemote (a);
+    };
+
     startTimer (flushTimerMs);
 }
 
 PluginSession::~PluginSession()
 {
     stopTimer();
+    state.detach();
     detach();
     plugin = nullptr;
     pluginRef = nullptr;
@@ -99,6 +115,7 @@ bool PluginSession::loadPlugin (const juce::File& vst3, juce::String& error)
     hello.plugin.instrument = desc.isInstrument;
 
     buildParamList();
+    state.attach (*getInstance(), [this] { return paramValues(); });
     juce::StringArray names;
     for (auto& p : params)
         names.add (p.name);
@@ -215,6 +232,14 @@ bool PluginSession::addSweepAutomation (const juce::String& id, double seconds)
     return true;
 }
 
+std::map<std::string, float> PluginSession::paramValues() const
+{
+    std::map<std::string, float> out;
+    for (const auto& p : params)
+        out[p.id.toStdString()] = p.jp->getValue();
+    return out;
+}
+
 const PluginSession::Param* PluginSession::findParam (const juce::String& id) const
 {
     auto it = byId.find (id);
@@ -294,8 +319,28 @@ void PluginSession::parameterChanged (te::AutomatableParameter& ap, float newVal
 
     logEvent (hostChanging ? "host" : "plugin", p->id, newValue, sync.isHeldHere (id) ? "held" : "");
 
-    if (auto again = sync.localValue (id, newValue, nowMs()))
+    // For state sync (#13): a report that changes nothing, from the plugin and
+    // not in answer to a value set from elsewhere, hints that something else in
+    // it moved; a real change is something done here.
+    const auto now = nowMs();
+    const auto before = sync.stats();
+
+    if (auto again = sync.localValue (id, newValue, now))
         applyRemote (*again);
+
+    const auto& after = sync.stats();
+
+    if (after.duplicates > before.duplicates)
+    {
+        ++stats.sameValueReports;
+        if (! hostChanging && now - lastRemoteApplyMs > 500.0)
+            state.sameValueReport (now);
+    }
+    else if (after.echoes == before.echoes && after.echoesStale == before.echoesStale && after.echoesAltered == before.echoesAltered)
+    {
+        // A real change, made here: not an echo of something from elsewhere.
+        state.localParamChange (now);
+    }
 }
 
 void PluginSession::parameterChangeGestureBegin (te::AutomatableParameter& ap)
@@ -354,12 +399,16 @@ void PluginSession::applyRemote (const psync::Apply& a)
     }
 
     logEvent ("apply", id, a.value);
+    lastRemoteApplyMs = nowMs();
+    state.remoteParamChange (lastRemoteApplyMs);
     const juce::ScopedValueSetter<bool> svs (applyingRemote, true);
     p->ap->setParameter (a.value, juce::sendNotification);
 }
 
 void PluginSession::timerCallback()
 {
+    // State first: applying a state can queue parameter changes to send.
+    state.tick (nowMs());
     flushNow (false);
 }
 
@@ -388,7 +437,17 @@ void PluginSession::receive (const juce::String& message)
 {
     Hello h;
     Batch b;
-    const auto type = decode (message, h, b);
+    StateMessage sm;
+    const auto type = decode (message, h, b, sm);
+
+    if (type.startsWith ("state"))
+    {
+        // A member with another plugin, or one not yet introduced, cannot be compared.
+        auto peer = peers.find (sm.from);
+        if (peer != peers.end() && peer->second.plugin.uid == hello.plugin.uid)
+            state.receive (sm, nowMs());
+        return;
+    }
 
     if (type == "hello")
     {
@@ -411,9 +470,13 @@ void PluginSession::receive (const juce::String& message)
                 warn ("parameter lists differ from " + h.member + ": " + line);
         }
 
-        // A late joiner has not seen ours yet.
+        // A late joiner has not seen ours yet, nor the agreed state.
         if (isNew)
+        {
             sendHello();
+            if (h.plugin.uid == hello.plugin.uid)
+                state.peerJoined (nowMs());
+        }
 
         return;
     }
@@ -442,8 +505,11 @@ void PluginSession::receive (const juce::String& message)
 void PluginSession::peersLeft()
 {
     for (auto& [id, h] : peers)
+    {
         for (const auto& a : sync.memberLeft (id.toStdString()))
             applyRemote (a);
+        state.peerLeft (id);
+    }
 
     peers.clear();
     mismatches.clear();

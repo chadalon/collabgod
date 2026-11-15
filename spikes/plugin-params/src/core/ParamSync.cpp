@@ -227,7 +227,7 @@ void ParamSync::dropOlderPending (Param& p, const Stamp& newer, float newValue, 
     p.pendingCarriesValue = false;
 }
 
-void ParamSync::rememberApplied (Param& p, float value, double nowMs)
+void ParamSync::rememberApplied (Param& p, float value, double nowMs, double windowMs)
 {
     if (opts.echoWindowMs <= 0.0)
         return;
@@ -235,7 +235,7 @@ void ParamSync::rememberApplied (Param& p, float value, double nowMs)
     std::erase_if (p.recent, [nowMs] (const Param::Recent& r) { return r.untilMs < nowMs; });
     if (p.recent.size() >= maxRecent)
         p.recent.erase (p.recent.begin());
-    p.recent.push_back ({ value, nowMs + opts.echoWindowMs });
+    p.recent.push_back ({ value, nowMs + std::max (opts.echoWindowMs, windowMs) });
 }
 
 void ParamSync::observe (const Stamp& s)
@@ -288,9 +288,13 @@ ParamSync::Adopted ParamSync::adoptState (const Snapshot& sent, const Stamp& sta
         if (p.known && since < p.stamp)
         {
             // A newer change is known here: put it back if the state overwrote it.
+            // The plugin may still report the state's value later, as it does a
+            // value set by the host (README "Echoes"): that is an echo, and the
+            // newest is set again.
             if (std::abs (value - p.value) > opts.epsilon)
             {
-                rememberApplied (p, p.value, nowMs);
+                rememberApplied (p, value, nowMs, stateEchoWindowMs);
+                rememberApplied (p, p.value, nowMs, stateEchoWindowMs);
                 out.apply.push_back ({ name, p.value });
             }
 
@@ -402,6 +406,14 @@ bool ParamSync::isHeldHere (const std::string& name) const
 {
     auto it = params.find (name);
     return it != params.end() && it->second.heldHere;
+}
+
+bool ParamSync::anyHeldHere() const
+{
+    for (const auto& [name, p] : params)
+        if (p.heldHere)
+            return true;
+    return false;
 }
 
 std::string ParamSync::heldBy (const std::string& name) const

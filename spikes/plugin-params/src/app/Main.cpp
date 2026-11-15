@@ -697,6 +697,13 @@ public:
     {
         const auto args = getCommandLineParameterArray();
 
+        if (args.contains ("--self-test-state"))
+        {
+            setApplicationReturnValue (spike::runStateSelfTest (args));
+            quit();
+            return;
+        }
+
         if (args.contains ("--self-test"))
         {
             // Runs to the end here, pumping the message loop itself, then quits.

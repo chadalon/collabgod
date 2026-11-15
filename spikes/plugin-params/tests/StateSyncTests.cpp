@@ -341,6 +341,11 @@ void ruleTests()
         CHECK (b.params.stamp ("res") && *b.params.stamp ("res") == (Stamp { 9, "a" }));
         CHECK (b.state.stats().paramsDiscovered == 0);
         CHECK (b.params.flush (300.0).empty());
+
+        // The plugin reports the value it loaded, late: an echo, and the newest is set again.
+        auto late = b.params.localValue ("cutoff", 0.4f, 700.0);
+        CHECK (late && std::abs (late->value - 0.8f) < 1e-6f);
+        CHECK (b.params.flush (800.0).empty());
     });
 
     test ("an untouched state loses to any edited one, and two untouched ones agree by member id", [] {
@@ -759,9 +764,8 @@ const Setting settings[] {
     { "plugins rewrite their state 400 ms after a load",     true,    true,  true,  true,   false,   0.0,  400.0 },
     { "everything at once",                                  true,    true,  true,  false,  true,    40.0, 400.0 },
     { "no recheck before fetching",                          true,    true,  true,  true,   false,   40.0, 0.0,   0.0 },
-    // Measured, not required: with only setDirty, an edit in the first 250 ms
-    // after a state arrives looks like the plugin reacting to the load; with no
-    // signal at all, an edit while a state settles is taken as settling.
+    // Measured, not required: with only setDirty, or no signal at all, an edit
+    // in the 1.5 s after a state arrives looks like the plugin settling.
     { "setDirty only",                                       true,    false, false, true,   false,   0.0,  0.0,   150.0, true },
     { "no signal at all, polling",                           false,   false, true,  true,   false,   0.0,  0.0,   150.0, true },
 };

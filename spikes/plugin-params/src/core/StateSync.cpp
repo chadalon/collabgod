@@ -59,11 +59,16 @@ bool StateSync::readDue (double nowMs, bool pollAllowed) const
         return true;
 
     // A change waits to be seen unchanged for the quiet period before it is announced.
-    if (pending && ! pending->confirmed && ! noisy && nowMs - pending->changedMs >= opts.quietMs
-        && lastReadMs < pending->changedMs + opts.quietMs)
+    if (pending && ! pending->confirmed && ! noisy && nowMs >= confirmAtMs() && lastReadMs < confirmAtMs())
         return true;
 
     return pollAllowed && ! noisy && nowMs - lastReadMs >= pollIntervalMs();
+}
+
+double StateSync::confirmAtMs() const
+{
+    const double lastParam = std::max (lastLocalMs, lastRemoteMs);
+    return std::max (pending ? pending->changedMs + opts.quietMs : 0.0, lastParam + opts.paramQuietMs);
 }
 
 bool StateSync::prompted (double nowMs) const
@@ -107,10 +112,11 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
         {
             ++counters.unchangedReads;
 
-            if (nowMs - pending->changedMs >= opts.quietMs && ! pending->confirmed)
+            if (nowMs >= confirmAtMs() && ! pending->confirmed)
             {
-                // Unchanged for the quiet period: every parameter has been still
-                // for that long too, so what is known now is what the bytes hold.
+                // Unchanged for the quiet period, and no parameter has moved for
+                // long enough to have reached the saved state: what is known now
+                // is what the bytes hold.
                 pending->confirmed = true;
                 pending->params = params.snapshot();
             }
@@ -135,7 +141,9 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
         return;
     }
 
-    const bool touchedSinceApply = lastLocalMs > appliedAtMs || lastHintMs > appliedAtMs + opts.settleHintGraceMs;
+    // Only something a person did ends settling early. A plugin often calls
+    // setDirty, or restarts, as it finishes loading: that is not a new change.
+    const bool touchedSinceApply = lastLocalMs > appliedAtMs;
 
     if (nowMs < settleUntilMs && ! touchedSinceApply)
     {
@@ -324,7 +332,9 @@ std::vector<Apply> StateSync::applied (const std::string& readbackHash, std::uin
     base = readbackHash;
     pending.reset();
     force = false;
-    settleUntilMs = nowMs + opts.settleMs;
+    // Long enough for at least two polls, so a rewrite after loading is seen inside it.
+    const double poll = pollIntervalMs();
+    settleUntilMs = nowMs + std::max (opts.settleMs, std::isfinite (poll) ? 2.0 * poll : 0.0);
     appliedAtMs = nowMs;
     lastRemoteMs = nowMs;
 

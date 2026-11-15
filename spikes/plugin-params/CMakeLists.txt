@@ -131,10 +131,14 @@ target_sources(plugin_params_spike PRIVATE
     src/host/Link.h
     src/host/PluginSession.cpp
     src/host/PluginSession.h
+    src/host/StateHost.cpp
+    src/host/StateHost.h
     src/host/Wire.cpp
     src/host/Wire.h
+    src/selftest/Harness.h
     src/selftest/SelfTest.cpp
-    src/selftest/SelfTest.h)
+    src/selftest/SelfTest.h
+    src/selftest/StateSelfTest.cpp)
 
 target_compile_definitions(plugin_params_spike PRIVATE
     ${PLUGIN_PARAMS_DEFINITIONS}
@@ -172,3 +176,11 @@ add_test(NAME mirror_between_members
         --v2 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v2_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
         --log-dir ${CMAKE_BINARY_DIR}/selftest)
 set_tests_properties(mirror_between_members PROPERTIES TIMEOUT 180)
+
+# Issue #13: the plugin's saved state between three members, with the same test VST3.
+add_test(NAME state_between_members
+    COMMAND plugin_params_spike --self-test-state
+        --v1 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v1_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+        --v2 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v2_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+        --log-dir ${CMAKE_BINARY_DIR}/selftest-state)
+set_tests_properties(state_between_members PROPERTIES TIMEOUT 300)
