@@ -4,6 +4,8 @@ Phase 0 spike for [issue #12](https://github.com/chadalon/collabgod/issues/12) (
 
 It is throwaway code. Product code never includes it.
 
+**Issue #13**, syncing the plugin state that is not a parameter (presets, wavetables, LFO shapes), builds on this spike in the same folder. Its design, findings and steps are in [`README-STATE.md`](README-STATE.md).
+
 ## What is here
 
 | Path | What it holds |
@@ -15,7 +17,9 @@ It is throwaway code. Product code never includes it.
 | `src/host/Link.*` | TCP between instances. One hosts and passes every message on to the others, as the relay would |
 | `src/selftest/SelfTest.cpp` | Three members in one process over TCP on 127.0.0.1, with the test plugin, checked end to end. `ctest` runs it |
 | `src/app/Main.cpp` | The window for trying real plugins between two machines |
-| `test-plugin/TestSynth.cpp` | A small VST3 instrument, built as version 1 and version 2 (see below) |
+| `test-plugin/TestSynth.cpp` | A small VST3 instrument, built as version 1 and version 2 (see below), with a hidden wavetable and test controls for #13 |
+| `src/core/StateSync.*`, `src/host/StateHost.*`, `src/selftest/StateSelfTest.cpp`, `src/probe/StateProbe.cpp`, `tests/StateSyncTests.cpp` | Plugin state sync, issue #13: see [`README-STATE.md`](README-STATE.md) |
+| `src/selftest/Harness.h` | What both self-tests share: the simulated sound card, members over TCP, checks, renders |
 
 ## How the mirroring works
 
@@ -83,7 +87,7 @@ Check each of these and note what happened:
 - [ ] **Both at once.** Each person grabs the same knob in their own window at the same time and wiggles it. Each hears their own value while holding it, and the list shows `held by m-...` for the other. When both let go, both end on the value of whoever let go last. Nothing keeps moving on its own afterwards.
 - [ ] **Fast sweep.** Select a parameter and press **Reset peaks**, then sweep a knob in the plugin window as fast as you can for a second or two. Then press **Host sweep 1 s** for comparison. Try the **Throttle** choices: off, 16, 33, 50 and 100 ms. Note the peaks of `plugin reports/s` and `changes sent/s`, and whether the other copy's sound steps or crackles at each throttle.
 - [ ] **Echoes.** Watch `not sent: echo of a remote value` and `not sent: someone else holds it` in the receiving copy while the other sweeps. Then set **Echo window off** in both and sweep again: if `changes sent/s` in the receiving copy is no longer 0, the plugin echoes, and the window is what stops it.
-- [ ] **Preset change.** Load a preset in one copy. Many parameters change at once; note how many messages it sends, and whether the other copy ends up sounding the same. (Non-parameter state, such as a wavetable, is issue #13; this only records what happens.)
+- [ ] **Preset change.** Load a preset in one copy. Many parameters change at once; note how many messages it sends, and whether the other copy ends up sounding the same. (Non-parameter state, such as a wavetable, is issue #13; untick **Sync state** for this check, which records what parameters alone do.)
 - [ ] **Versions.** If the two machines have different versions of a plugin, load it in both: the log shows a `WARNING` for every difference in the parameter lists. Note them.
 
 Then press **Save report** in each copy. It writes a Markdown report to `Documents/CollabGod Spike Reports/plugin-params` and copies it to the clipboard: paste it into the issue. Tick **Log events to CSV** before a test to get every event with a timestamp, in the same folder.
@@ -178,7 +182,7 @@ Findings 1 to 11 come from a cloud session on Linux with the test plugin. Where 
 
 ## Not covered
 
-- State that is not a parameter: presets, wavetables, samples inside a plugin. That is issue #13. Preset loads were observed here (finding 12), not synced as state.
+- State that is not a parameter: presets, wavetables, samples inside a plugin. That is issue #13, in [`README-STATE.md`](README-STATE.md). Preset loads were observed here (finding 12), not synced as state.
 - Adding a plugin on one machine and loading it on the other (PLG-4's first half): the spike loads the same file on both by hand. Scanning and inventories are issue #14.
 - The relay. The spike uses its own TCP link; the product sends through `spikes/relay` (finding 11).
 - Plugin crashes (PLG-8), and hosting out of process.

@@ -472,7 +472,7 @@ bool pathStartsAt (const std::string& s, std::size_t i)
     if (startsWithAt (s, i, "file://"))
         return true;
 
-    for (auto* root : { "/users/", "/home/", "/volumes/", "/library/", "/applications/", "/private/", "/tmp/", "/opt/", "/mnt/" })
+    for (auto* root : { "/users/", "/home/", "/volumes/", "/library/", "/applications/", "/private/", "/var/", "/tmp/", "/opt/", "/mnt/" })
         if (startsWithAt (s, i, root) && (i == 0 || isTerminator (s[i - 1]) || s[i - 1] == ' ' || s[i - 1] == '=' || s[i - 1] == ':'))
             return true;
 

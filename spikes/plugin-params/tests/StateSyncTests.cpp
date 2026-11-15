@@ -72,13 +72,16 @@ void helperTests()
         for (char c : wide) { blob.push_back (c); blob.push_back ('\0'); }
         blob += "\0\0"s;
 
+        blob += "x=/var/folders/ab/T/collabgod-test-synth/sample-1f.wav\x00"s;
+
         auto found = findPathLikeStrings (blob.data(), blob.size());
         auto has = [&] (const std::string& s) { return std::find (found.begin(), found.end(), s) != found.end(); };
         CHECK (has ("C:\\Users\\chad\\Samples\\Kick 01.wav"));
         CHECK (has ("/Users/chad/Music/Serum Presets/Tables/Growl.wav"));
         CHECK (has ("Bass.SerumPreset"));
         CHECK (has ("D:\\Libraries\\Strings\\Violin.nki"));
-        CHECK (found.size() == 4);
+        CHECK (has ("/var/folders/ab/T/collabgod-test-synth/sample-1f.wav"));
+        CHECK (found.size() == 5);
 
         std::mt19937 rng (5);
         std::string noise (1 << 16, '\0');

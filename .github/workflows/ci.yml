@@ -341,17 +341,19 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build (the app, and both versions of the test VST3)
         run: cmake --build build --config Release --parallel 4
-      - name: Self-test (sync rules; three members mirroring the test VST3 over TCP)
+      - name: Self-tests (sync rules; three members mirroring the test VST3's parameters and state over TCP; the state probe)
         run: ctest --test-dir build -C Release --output-on-failure --verbose
       - name: Record the self-test
         if: always()
         run: |
           {
-            echo "### Plugin parameter spike on ${{ matrix.os }}"
+            echo "### Plugin parameter and state spike on ${{ matrix.os }}"
             echo ""
             echo '```'
-            grep -E '^(PASS|FAIL|RATE|ECHO)' build/Testing/Temporary/LastTest.log || echo "(no self-test output)"
+            grep -E '^(PASS|FAIL|RATE|ECHO|STATE)' build/Testing/Temporary/LastTest.log || echo "(no self-test output)"
             echo '```'
+            echo ""
+            cat build/selftest-state/probe.md 2>/dev/null || echo "(no state probe report)"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # One stable check name for branch protection to require, however many jobs exist above.
