@@ -148,6 +148,40 @@ public:
     bool hasPending() const noexcept;
 
     //==========================================================================
+    // Plugin state (issue #13, src/core/StateSync.h). A saved state is applied as
+    // a whole, so it sets parameters too, including ones a plugin changed without
+    // telling the host. These keep every parameter's last-writer-wins order intact
+    // when that happens.
+
+    /** A stamp newer than everything this member has seen, from the same clock as parameter changes. */
+    Stamp issueStamp()                       { return nextStamp(); }
+    /** Moves the clock past a stamp seen from someone else. */
+    void observe (const Stamp&);
+
+    /** Every known parameter's value and stamp: what a saved state is taken to
+        hold, from this member's point of view, when it is read. */
+    using Snapshot = std::map<std::string, std::pair<float, Stamp>>;
+    Snapshot snapshot() const;
+
+    struct Adopted
+    {
+        std::vector<Apply> apply;        ///< values to set on the local plugin again
+        std::vector<Change> discovered;  ///< parameters the state changed without its sender knowing; queued to send
+    };
+
+    /** Called after a state from another member was applied to the local plugin.
+        `sent` is the sender's snapshot when it read the state, `stateStamp` the
+        state's stamp, `readback` what the plugin holds now. For each parameter:
+        - where the plugin now differs from the sender's snapshot, the plugin
+          changed it without reporting it (a preset load, in some plugins). It is
+          taken as written at the state's stamp, and sent on, so the sender and
+          anyone who did not apply the state learn it too;
+        - otherwise the state carries the sender's value and stamp;
+        and either is taken only if it is newer than what is known here. If what
+        is known here is newer, it is set on the plugin again. */
+    Adopted adoptState (const Snapshot& sent, const Stamp& stateStamp, const std::map<std::string, float>& readback, double nowMs);
+
+    //==========================================================================
     // State, for tests and the window.
 
     std::optional<float> value (const std::string& param) const;
@@ -177,6 +211,8 @@ private:
     static constexpr std::size_t maxRecent = 32;
 
     void receiveValue (Param&, const Change&, double nowMs, std::vector<Apply>&);
+    void rememberApplied (Param&, float value, double nowMs);
+    static void dropOlderPending (Param&, const Stamp&, float newValue, Stats&);
 
     Stamp nextStamp();
     void queue (Param&, const std::string& name, std::uint8_t flags);
@@ -185,6 +221,7 @@ private:
     Options opts;
     std::uint64_t clock = 0;
     std::map<std::string, Param> params;
+    std::vector<Change> notices;     // what applying a state revealed about its sender's plugin, sent as is
     Stats counters;
 };
 

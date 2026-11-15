@@ -20,10 +20,13 @@ endif()
 enable_testing()
 
 # ---------------------------------------------------------------------------
-# The mirroring rules: plain C++20, no JUCE, no engine. Tested on their own.
+# The mirroring rules for parameters (#12) and state (#13): plain C++20, no
+# JUCE, no engine. Tested on their own.
 # ---------------------------------------------------------------------------
 
-add_library(param_sync_core STATIC src/core/ParamSync.cpp src/core/ParamSync.h)
+add_library(param_sync_core STATIC
+    src/core/ParamSync.cpp src/core/ParamSync.h
+    src/core/StateSync.cpp src/core/StateSync.h)
 target_include_directories(param_sync_core PUBLIC src/core)
 
 if(MSVC)
@@ -35,6 +38,11 @@ endif()
 add_executable(param_sync_tests tests/ParamSyncTests.cpp)
 target_link_libraries(param_sync_tests PRIVATE param_sync_core)
 add_test(NAME sync_rules COMMAND param_sync_tests)
+
+# Issue #13: the state sync rules, on the same clock as the parameter rules.
+add_executable(state_sync_tests tests/StateSyncTests.cpp)
+target_link_libraries(state_sync_tests PRIVATE param_sync_core)
+add_test(NAME state_rules COMMAND state_sync_tests)
 
 # ---------------------------------------------------------------------------
 # Everything else needs the same pinned JUCE 9 and Tracktion Engine as

@@ -179,43 +179,24 @@ void ParamSync::receiveValue (Param& p, const Change& c, double nowMs, std::vect
     if (p.known && ! (p.stamp < c.stamp))
     {
         ++counters.stale;
+
+        // Someone tells us what our own plugin held when it saved a state (see
+        // adoptState): a value it set without telling our host. A newer value
+        // has been agreed since, but our plugin may still hold the old one.
+        if (c.stamp.member == memberId && std::abs (c.value - p.value) > opts.epsilon)
+            out.push_back ({ c.param, p.value });
         return;
     }
 
     p.stamp = c.stamp;
-
-    // A change of ours still waiting to go out has lost; only send it if it
-    // carries a gesture flag the others need.
-    if (p.pending && p.pending->stamp < c.stamp)
-    {
-        if (p.pending->flags == Flags::none)
-        {
-            ++counters.coalesced;
-            p.pending.reset();
-            p.pendingCarriesValue = false;
-        }
-        else
-        {
-            p.pending->value = c.value;
-            p.pending->stamp = c.stamp;
-            p.pendingCarriesValue = false;
-        }
-    }
+    dropOlderPending (p, c.stamp, c.value, counters);
 
     if (! p.known || p.pluginDiffers || std::abs (c.value - p.value) > opts.epsilon)
     {
         p.value = c.value;
         p.known = true;
         p.pluginDiffers = false;
-
-        if (opts.echoWindowMs > 0.0)
-        {
-            std::erase_if (p.recent, [nowMs] (const Param::Recent& r) { return r.untilMs < nowMs; });
-            if (p.recent.size() >= maxRecent)
-                p.recent.erase (p.recent.begin());
-            p.recent.push_back ({ c.value, nowMs + opts.echoWindowMs });
-        }
-
+        rememberApplied (p, c.value, nowMs);
         ++counters.applied;
         out.push_back ({ c.param, c.value });
     }
@@ -223,6 +204,123 @@ void ParamSync::receiveValue (Param& p, const Change& c, double nowMs, std::vect
     {
         ++counters.receivedSame;
     }
+}
+
+void ParamSync::dropOlderPending (Param& p, const Stamp& newer, float newValue, Stats& stats)
+{
+    // A change of ours still waiting to go out has lost; only send it if it
+    // carries a gesture flag the others need.
+    if (! p.pending || ! (p.pending->stamp < newer))
+        return;
+
+    if (p.pending->flags == Flags::none)
+    {
+        ++stats.coalesced;
+        p.pending.reset();
+    }
+    else
+    {
+        p.pending->value = newValue;
+        p.pending->stamp = newer;
+    }
+
+    p.pendingCarriesValue = false;
+}
+
+void ParamSync::rememberApplied (Param& p, float value, double nowMs)
+{
+    if (opts.echoWindowMs <= 0.0)
+        return;
+
+    std::erase_if (p.recent, [nowMs] (const Param::Recent& r) { return r.untilMs < nowMs; });
+    if (p.recent.size() >= maxRecent)
+        p.recent.erase (p.recent.begin());
+    p.recent.push_back ({ value, nowMs + opts.echoWindowMs });
+}
+
+void ParamSync::observe (const Stamp& s)
+{
+    if (s.counter > clock)
+        clock = s.counter;
+}
+
+ParamSync::Snapshot ParamSync::snapshot() const
+{
+    Snapshot out;
+
+    for (const auto& [name, p] : params)
+        if (p.known)
+            out[name] = { p.value, p.stamp };
+
+    return out;
+}
+
+ParamSync::Adopted ParamSync::adoptState (const Snapshot& sent, const Stamp& stateStamp,
+                                         const std::map<std::string, float>& readback, double nowMs)
+{
+    observe (stateStamp);
+    Adopted out;
+
+    for (const auto& [name, value] : readback)
+    {
+        // What the state says this parameter is, and since when.
+        float carried = value;
+        Stamp since = stateStamp;
+        bool silent = true;
+
+        if (auto it = sent.find (name); it != sent.end() && std::abs (it->second.first - value) <= opts.epsilon)
+        {
+            carried = it->second.first;
+            since = it->second.second;
+            silent = false;
+        }
+
+        auto& p = params[name];
+
+        if (p.heldHere)
+        {
+            // Someone here is holding it: their hand wins until they let go.
+            if (p.known && std::abs (value - p.value) > opts.epsilon)
+                out.apply.push_back ({ name, p.value });
+            continue;
+        }
+
+        if (p.known && since < p.stamp)
+        {
+            // A newer change is known here: put it back if the state overwrote it.
+            if (std::abs (value - p.value) > opts.epsilon)
+            {
+                rememberApplied (p, p.value, nowMs);
+                out.apply.push_back ({ name, p.value });
+            }
+
+            // The sender's plugin holds a value its host does not know about.
+            // Everyone else ignores this as older than what they have; the
+            // sender learns that its plugin needs the agreed value set again.
+            if (silent && stateStamp.member != memberId)
+                notices.push_back ({ name, value, stateStamp, Flags::none });
+            continue;
+        }
+
+        if (p.known && since == p.stamp)
+            continue;
+
+        p.value = carried;
+        p.known = true;
+        p.stamp = since;
+        p.pluginDiffers = false;
+        dropOlderPending (p, since, carried, counters);
+
+        if (silent)
+        {
+            const Change c { name, carried, since, Flags::none };
+            out.discovered.push_back (c);
+            p.pending = c;
+            p.pendingCarriesValue = true;
+        }
+    }
+
+    return out;
 }
 
 std::vector<Apply> ParamSync::memberLeft (const std::string& member)
@@ -248,7 +346,8 @@ std::vector<Apply> ParamSync::memberLeft (const std::string& member)
 
 std::vector<Change> ParamSync::flush (double nowMs)
 {
-    std::vector<Change> out;
+    std::vector<Change> out (std::make_move_iterator (notices.begin()), std::make_move_iterator (notices.end()));
+    notices.clear();
 
     for (auto& [name, p] : params)
     {
@@ -277,6 +376,9 @@ std::vector<Change> ParamSync::flush (double nowMs)
 
 bool ParamSync::hasPending() const noexcept
 {
+    if (! notices.empty())
+        return true;
+
     for (const auto& [name, p] : params)
         if (p.pending)
             return true;
