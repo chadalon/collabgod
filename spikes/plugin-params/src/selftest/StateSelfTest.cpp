@@ -185,15 +185,15 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto t0 = PluginSession::nowMs();
         a.session.getState().windowMouse (true, t0);
         a.session.getState().windowMouse (false, t0 + 1.0);
-        stateCheck (waitFor ([&] { return sameState ({ &a, &b }); }, 5000), "the mouse let go in A's window finds it",
-                    "in " + juce::String (PluginSession::nowMs() - t0, 0) + " ms");
+        const bool found = waitFor ([&] { return sameState ({ &a, &b }); }, 5000);
+        stateCheck (found, "the mouse let go in A's window finds it", "in " + juce::String (PluginSession::nowMs() - t0, 0) + " ms");
 
         // Polling instead.
         a.session.getState().detect = Detect::pollAlways;
         const auto t1 = PluginSession::nowMs();
         setTest (a, "Test: new wavetable", 1.0f);
-        stateCheck (waitFor ([&] { return st (b).applies >= appliedBefore + 2 && sameState ({ &a, &b }); }, 5000), "polling finds it",
-                    "in " + juce::String (PluginSession::nowMs() - t1, 0) + " ms, polling every "
+        const bool polled = waitFor ([&] { return st (b).applies >= appliedBefore + 2 && sameState ({ &a, &b }); }, 5000);
+        stateCheck (polled, "polling finds it", "in " + juce::String (PluginSession::nowMs() - t1, 0) + " ms, polling every "
                     + juce::String (a.session.getState().getSync().pollIntervalMs(), 0) + " ms");
         setTest (a, "Test: call setDirty", 1.0f);
     }
@@ -288,10 +288,14 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
     //==========================================================================
     print ("\n7. A and B change it at the same time");
     {
+        const auto beforeA = hashOf (a), beforeB = hashOf (b);
+        const auto announcedA = st (a).announcesSent, announcedB = st (b).announcesSent;
         setTest (a, "Test: new wavetable", 1.0f);
         setTest (b, "Test: new wavetable", 1.0f);
-        stateCheck (waitFor ([&] { return sameState ({ &a, &b }); }, 8000), "they end with the same state",
-                    hashOf (a) + " and " + hashOf (b));
+        stateCheck (waitFor ([&] { return st (a).announcesSent > announcedA && st (b).announcesSent > announcedB; }, 5000),
+                    "both announce their change");
+        const bool converged = waitFor ([&] { return sameState ({ &a, &b }) && hashOf (a) != beforeA && hashOf (b) != beforeB; }, 8000);
+        stateCheck (converged, "they end with the same state", hashOf (a) + " and " + hashOf (b));
         const double hz = hzOf (a, pitch);
         stateCheck (timbreDistance (timbre (a, logDir, "a-both", hz), timbre (b, logDir, "b-both", hz)) < 0.02, "and sound the same");
         print ("STATE both at once: A forced " + juce::String ((juce::int64) a.session.getState().getSync().stats().forced)

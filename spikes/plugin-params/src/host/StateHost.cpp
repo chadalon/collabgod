@@ -257,13 +257,23 @@ void StateHost::tick (double now)
 
     if (auto offer = sync.flush (now, held))
     {
-        // The bytes are the last ones read with this hash.
+        // The bytes are the ones read with this hash: the last read, or one kept
+        // when the change was found. A plugin whose state changes on every save
+        // would give other bytes if it were read again now.
         if (offer->ref.hash == last.hash)
+        {
             announce (*offer, last, now);
+        }
+        else if (auto it = cache.find (offer->ref.hash); it != cache.end())
+        {
+            SavedState s;
+            s.bytes = it->second.bytes;
+            s.hash = offer->ref.hash;
+            announce (*offer, s, now);
+        }
         else
         {
-            const auto s = read();
-            announce (*offer, s, now);
+            warn ("the bytes of state " + shortHash (offer->ref.hash) + " were not kept; it cannot be sent");
         }
     }
 

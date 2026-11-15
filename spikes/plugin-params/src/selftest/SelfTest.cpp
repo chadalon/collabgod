@@ -203,8 +203,8 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
             check (sentByB <= 1, "with the echo window, B sends back at most the plugin's rounding of the last value",
                    juce::String ((juce::int64) sentByB) + " sent");
 
-        check (waitFor ([&] { return near (a.value (level), b.value (level), 0.006f); }, 3000),
-               "A and B settle on the same Level, within the plugin's rounding",
+        const bool settled = waitFor ([&] { return near (a.value (level), b.value (level), 0.006f); }, 3000);
+        check (settled, "A and B settle on the same Level, within the plugin's rounding",
                juce::String (a.value (level), 4) + " and " + juce::String (b.value (level), 4));
     }
 
