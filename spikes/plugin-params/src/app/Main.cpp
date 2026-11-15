@@ -20,8 +20,10 @@ using spike::PluginSession;
 
 juce::File reportFolder()
 {
+    // Not Documents/CollabGod: folder names ignore case on Windows and macOS, so
+    // that is where a clone of the repository in Documents is likely to be.
     return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-               .getChildFile ("CollabGod").getChildFile ("plugin-params");
+               .getChildFile ("CollabGod Spike Reports").getChildFile ("plugin-params");
 }
 
 juce::String randomMember()
