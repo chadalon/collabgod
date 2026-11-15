@@ -65,12 +65,12 @@ The configure step downloads JUCE and Tracktion Engine again into this build fol
 
 | Command | What it does |
 | --- | --- |
-| `engine_projection selftest [--out dir]` | Without an audio device. A: every contract example gives its readback. B: clips moved, removed and added half a second before the playhead are heard where they now are, and only there. C: 8 s of random edits while looping, many right at the playhead; the probe must stay clean and the readback must match. D: everything removed and rebuilt in one batch while playing. `ctest` runs this. |
+| `engine_projection selftest [--out dir]` | Without an audio device. A: every contract example gives its readback. B: clips moved, removed and added half a second before the playhead are heard where they now are, and only there. C: 8 s of random edits while looping, many right at the playhead; the probe must stay clean and the readback must match. D: everything removed and rebuilt in one batch while playing. E: the output analysis finds bleed, dips and overs in a made-up signal and none in a clean one; B also records the engine's real output and checks the left carries only the probe. `ctest` runs this. |
 | `engine_projection bench [--out dir]` | What an edit costs as the session grows (100, 1,000 and 5,000 clips on 50 tracks) while playing through the simulated sound card. Prints a Markdown table. |
 | `engine_projection serve [--simulated-audio]` | The engine as a process the TypeScript side drives (contract/README.md). |
 | `npm run dropout-check -- --bin <binary>` (in `ts`) | The dropout check on a real device: see below. |
 
-Options for all three engine commands: `--tracktion-wave-nodes` plays clips the way Tracktion does by default, which waits on its file cache on the audio thread (finding 4); `--audio-cpus N` limits how many CPUs Tracktion uses for audio (finding 5).
+Options for all three engine commands: `--tracktion-wave-nodes` plays clips the way Tracktion does by default, which waits on its file cache on the audio thread (finding 4); `--audio-cpus N` limits how many CPUs Tracktion uses for audio (finding 5). With a real device (`serve` without `--simulated-audio`, `bench --device`), `--device-type NAME` opens that JUCE device type instead of the system's default, such as `"Windows Audio (Exclusive Mode)"`, which bypasses the Windows mixer; a name that does not exist gets the list of the ones that do. `--buffer-size N` asks the device for N samples per block.
 
 ### The dropout check
 
@@ -82,11 +82,13 @@ Options for all three engine commands: `--tracktion-wave-nodes` plays clips the 
 
 For each phase it reports the device's dropout counter, the click detector's clicks and gaps on the probe, and transport stops nobody asked for (#101). At the end it checks the engine still matches the model, prints a verdict, and saves a JSON report in the current folder. Listen on headphones: the **left ear** is the steady tone and must stay clean through everything; the **right ear** is the clips, jumping about as they are edited.
 
-Its options: `--seconds`, `--rate`, `--tracks`, `--clips`, `--samples <folder>` (use your own .wav and .aif files instead of generated tones), `--simulated-audio`, `--tracktion-wave-nodes`, `--audio-cpus`, `--seed`. They are listed at the top of `ts/src/dropout-check.ts`.
+It also records the engine's output as it goes to the device and measures it in 50 ms windows: the left tone's level and any dips in it, anything on the left that is not the tone (such as the right side leaking across), and samples over full scale. Something you hear that is not in that recording happens after the engine, in the operating system's mixer, the interface or the headphones. `--record <file.wav>` saves the recording to listen to or inspect.
+
+Its options: `--seconds`, `--rate`, `--tracks`, `--clips`, `--samples <folder>` (use your own .wav and .aif files instead of generated tones), `--simulated-audio`, `--tracktion-wave-nodes`, `--audio-cpus`, `--device-type`, `--buffer-size`, `--record`, `--seed`. They are listed at the top of `ts/src/dropout-check.ts`.
 
 ## Findings
 
-Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time scheduling) with the simulated sound card at 44.1 kHz and 441 samples. The numbers on Chad's machines are still to come (below).
+Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time scheduling) with the simulated sound card at 44.1 kHz and 441 samples, unless a finding says otherwise. Findings 4, 5, 6 and 10 end with what Chad's Windows machine showed, and finding 12 sums it up. The Mac is still to come (below).
 
 1. **The projection works for tracks and audio clips.** Edits in the model change what Tracktion plays: in self-test B, half a second before the playhead got there, a clip was moved to another track and later time, another removed, and a third added on a new track. The recording by edit time had the moved clip only at its new place (-6 dB where it should be, below -120 dB where it was), nothing where the removed one was, and the added one where it was put. In the end-to-end tests, 25 random sequences of 40 model edits each (adds, moves, resizes, removes, undos, track adds and removes) matched the projection exactly after every batch, read back from Tracktion's own objects. 300 longer sequences against the reference semantics did the same. Applying the diff of 2,000 random pairs of documents always gave the target.
 
@@ -103,7 +105,11 @@ Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time s
 
    Turning proxies off on a clip (`setUsesProxy (false)`) makes Tracktion play it with `WaveNodeRealTime`, whose cache reads have a time-out of 0 ms: on a cache miss that clip is silent for the block, instead of the whole output being late. The spike now does that by default (`--tracktion-wave-nodes` brings the old behaviour back for comparison). Clips edited half a second ahead still played in full (self-test B passes either way). Not tested: compressed files and stretched clips without proxies, where `WaveNodeRealTime` decodes or stretches in real time at a CPU cost (DAW-8). Either way, NFR-3 says the audio thread never waits on the disk, and Tracktion's default does, indirectly.
 
+   On Chad's Windows machine (16 cores), `--tracktion-wave-nodes` made no difference: no device dropouts with either node type, through 287 edits and a rebuild while playing. The waiting is still there; a machine with cores to spare and small, cached sample files hides it. Keep `WaveNodeRealTime`: the rule is that the audio thread never waits, not that it waits briefly enough.
+
 5. **On a small machine, Tracktion's worker threads can make the audio thread wait too.** Tracktion processes the graph on a pool of threads, one fewer than the CPUs, and the audio callback waits for them. On this 2-core machine, a graph rebuild on the message thread can take the CPU the worker needs. The slowest blocks then took 92 to 137 ms of wall time but under 1.2 ms of the audio thread's own CPU: it was waiting, not working. With `WaveNodeRealTime` this drops to one late block of 17 ms at 1,000 clips; with `--audio-cpus 1` (no pool) there were none at any size. A desktop with 8 or more cores and a real-time audio thread may never see it. It needs measuring on Chad's machines before deciding anything (#27 owns device and thread settings).
+
+   On Chad's Windows machine (AMD Ryzen 9 9950X3D, 16 cores, 32 threads), Tracktion's default of 32 audio threads was fine: the simulated sound card's slowest block was 0.42 ms against a 10 ms budget at 5,000 clips, none late (the audio thread's own CPU time is not measured on Windows). On the real device, dropouts with no edits at all came and went with other audio apps: with Spotify open, the default setting counted 1 to 13 dropouts in 15 s of quiet; closed, none. `--audio-cpus 4` was clean even with Spotify open, and `--audio-cpus 1` was the worst, but two things changed between those runs, so this does not settle a thread count. #27 should measure it with other audio apps running, because users will have them.
 
 6. **Every edit rebuilds Tracktion's whole playback graph on the message thread, and that grows with the session.** A one-clip move costs well under a millisecond to apply, then Tracktion rebuilds the graph for the whole edit:
 
@@ -115,6 +121,16 @@ Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time s
 
    JUCE's message thread is also where the web view bridge runs, so at a few thousand clips each edit would cost the interface several frames. The rebuild is per batch, not per command, so the product should send at most one batch per display frame and coalesce everything in between. The projector does that naturally: the diff of many model changes is one batch. Rebuilding only the changed part of the graph would need changes in Tracktion itself.
 
+   On Chad's Windows machine the same bench was about twice as fast, which still makes 5,000 clips cost about two frames at 60 Hz per edit:
+
+   | Clips (50 tracks) | Add all in one batch, then its rebuild | One move: apply | One move: graph rebuild | Readback |
+   | --- | --- | --- | --- | --- |
+   | 100 | 6.4 ms, then 1.6 ms | 0.05 ms | 1.9 ms (max 2.1) | 0.2 ms |
+   | 1,000 | 43 ms, then 7.9 ms | 0.07 ms | 5.8 ms (max 8.2) | 1.5 ms |
+   | 5,000 | 211 ms, then 37 ms | 0.20 ms | 29 ms (max 39) | 8.1 ms |
+
+   That is `bench --device`, playing through the Focusrite. With the simulated sound card the rebuilds were similar (2.0, 7.9 and 32 ms per move).
+
 7. **Graph swaps do not glitch audio the edits did not touch.** In every run, with either node type, the probe stayed clean: no clicks, no gaps, largest step 0.0016 against a threshold of 0.02. Every late block above was lateness, not a corrupted signal. On a real device lateness is the dropout, which is why finding 4 matters.
 
 8. **Edits cut clips that are sounding.** Moving, shortening or removing a clip while it plays stops it at once. The detector counted about 700 hard edges on the clips' side in 8 s of storm. That is not a dropout, but the other person's edit will click in your ears. The product should give an edit to a sounding clip a short fade, which DAW-2 needs anyway.
@@ -122,6 +138,12 @@ Measured on a 2-core cloud machine (Intel Xeon at 2.1 GHz, Linux, no real-time s
 9. **The model has gaps the projection exposed.** There is no clip offset, so a trim from the left cannot be expressed (DAW-2): the projection sends `offset: 0` and resizes from the end. There is no tempo, so ticks become seconds at a fixed 1,920 a second (960 per beat at 120 BPM); a tempo change will move every clip in one batch. A clip whose sample is not on this machine is left out and listed as missing; the product will need a placeholder while it transfers (#16). Ids live on Tracktion's items as a `collabgodId` property, with a map from id to Tracktion's `EditItemID` for lookups.
 
 10. **The start-up and MIDI problems in #101 did not affect any of this.** The engine waits until it has settled before playing and restarts a transport that stops by itself, as the web view spike does, and counts those restarts separately. None happened in any run here, which used the simulated sound card. On real machines plugging a MIDI controller in during the dropout check will show up as an unexpected stop, not as a projection failure.
+
+   On Chad's Windows machine it did: plugging a MIDI controller in during the edits stopped the transport, and the engine counted it and pressed play again. The restart is not seamless. The click detector counted one click on the probe, and the recording shows the probe 1.8 dB down in one 50 ms window around it. That is #101's problem, not the projection's, but it is audible, so whatever #101 settles on should not stop playback in the first place. The check used to call that run a FAIL; it now calls a stop during the edits with no device dropouts INCONCLUSIVE and asks for another run.
+
+11. **The dropout check's first sessions overloaded the output, and that confused the listening.** Tracktion adds 6 dB to a track panned hard right, and with 48 clips on 8 tracks up to about nine tones overlap, so the right channel peaked at +14.4 dBFS with the generated tones and +17.7 dBFS with a folder of real samples. The left channel was clean throughout (the recording shows the right side at least 62 dB down on the left, and no dips), but on Windows a dip in the left tone and some right-side sound in the left ear were heard. The dip did not come back once other audio apps were closed; the bleed was still heard in exclusive mode, which bypasses the Windows mixer, so it is after the driver or in the hardware. Every model track now has -24 dB of gain (`Host::modelTrackGainDb`), and the check measures its own output and warns when it goes over full scale. The product will need a real mix bus with headroom; DAW-level gain staging is not this spike's.
+
+12. **On Chad's Windows machine, edits during playback did not cause a dropout.** Windows Audio (shared mode) through a Focusrite USB interface, 44.1 kHz, 441 samples per block, all 32 threads for audio, other audio apps closed. With generated tones, with `--tracktion-wave-nodes`, and with a folder of Chad's own samples: 287 edits in 30 s plus a rebuild from scratch while playing, and in every phase 0 device dropouts, 0 probe clicks or gaps, the left tone never more than 1 dB down, and the engine matching the model at the end. Listening on headphones agreed. Model to engine took a median of 3.7 to 4.0 ms per edit, round trip through the engine process, and p95 about 6 ms. Exclusive mode, tried while looking into finding 11, dropped out constantly at its default block size; that is a device setting for #27, not a projection result.
 
 ## Cost and recommendation
 
@@ -135,17 +157,17 @@ The projection itself was cheap. It is about 510 lines of TypeScript (`document`
 
 None of these is made worse by the projection. The fallback would put the same edits through the same graph rebuilds, and would lose the property tests and the browser-safe model.
 
-What would change the recommendation: if Chad's machines drop out during the check even with `WaveNodeRealTime`, or if the graph rebuild on a real session is slow enough to hurt the interface even when batched. Either would point at Tracktion, not at the projection, and would be a reason to look at the fallback engine choices in ADR-0002 rather than at the source-of-truth choice.
+On Windows, neither happened (findings 4, 6 and 12): no dropouts, and a rebuild of 29 ms per edit at 5,000 clips, which batching per frame covers. What would change the recommendation: if the Mac drops out during the check even with `WaveNodeRealTime`, or if the graph rebuild on a real session is slow enough to hurt the interface even when batched. Either would point at Tracktion, not at the projection, and would be a reason to look at the fallback engine choices in ADR-0002 rather than at the source-of-truth choice.
 
 ## What is left (needs Chad's machines)
 
 The time box is spent on what a cloud machine can show. These need the real devices, and the issue stays open until they are done:
 
-- [ ] Windows: build, `ctest`, and `npm test` with `ENGINE_PROJECTION_BIN` set.
-- [ ] Windows: `npm run dropout-check`, listening on headphones. Then again with `--tracktion-wave-nodes`, to hear and count the difference. Then with `--samples` pointing at a folder of real samples.
-- [ ] Windows: `engine_projection bench`, for the cost table on a real CPU.
-- [ ] Mac: the same four. Its device has no dropout counter (engine-toolchain), so listening is the only measure there besides the click detector.
-- [ ] Both: plug a MIDI controller in during the edits phase once, to see #101's restart counted as an unexpected stop and not as a projection failure.
+- [x] Windows: build, `ctest`, and `npm test` with `ENGINE_PROJECTION_BIN` set.
+- [x] Windows: `npm run dropout-check`, listening on headphones. Then again with `--tracktion-wave-nodes`, to hear and count the difference. Then with `--samples` pointing at a folder of real samples (finding 12).
+- [x] Windows: `engine_projection bench`, for the cost table on a real CPU (finding 6).
+- [x] Windows: plug a MIDI controller in during the edits phase once (finding 10).
+- [ ] Mac: the same four. Its device has no dropout counter (engine-toolchain), so listening is the only measure there besides the click detector and the recording of the output.
 - [ ] Post the dropout check's summary tables and the bench tables on #11, and attach the JSON reports.
 
 ## Not covered
