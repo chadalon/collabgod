@@ -23,21 +23,23 @@ juce::String usage()
            "    --benchmark [full|quick]   Run the benchmark as soon as the page loads (default full)\n"
            "    --exit-after-benchmark     Quit when the report is saved: exit code 0 if it reported no errors\n"
            "    --ui-dir <folder>          Serve the page from here (default: ui/dist in the source tree)\n"
-           "    --report-dir <folder>      Write reports and the log here (default: Documents/CollabGod/webview-spike;\n"
+           "    --report-dir <folder>      Write reports and the log here (default: Documents/CollabGod Spike Reports/webview-spike;\n"
            "                               on macOS ~/Library/Logs/CollabGod/webview-spike)\n"
            "  webview_spike selftest [--contract-dir <folder>]\n";
 }
 
-/** Documents/CollabGod/webview-spike, except on macOS: there Documents is behind a
-    privacy prompt, so ~/Library/Logs/CollabGod/webview-spike (Console.app shows it). */
+/** Documents/CollabGod Spike Reports/webview-spike, except on macOS: there Documents
+    is behind a privacy prompt, so ~/Library/Logs/CollabGod/webview-spike (Console.app
+    shows it). Not Documents/CollabGod: folder names ignore case on Windows, so that
+    is where a clone of the repository in Documents is likely to be. */
 juce::File defaultReportDir()
 {
    #if JUCE_MAC
-    const auto base = juce::File ("~/Library/Logs");
+    return juce::File ("~/Library/Logs").getChildFile ("CollabGod").getChildFile ("webview-spike");
    #else
-    const auto base = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+               .getChildFile ("CollabGod Spike Reports").getChildFile ("webview-spike");
    #endif
-    return base.getChildFile ("CollabGod").getChildFile ("webview-spike");
 }
 
 juce::String valueAfter (const juce::StringArray& args, const juce::String& flag)
