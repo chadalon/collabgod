@@ -19,7 +19,7 @@ Reading a factory means loading the plugin's code. Plugins crash, hang on licenc
 **Version.** Given the same class ID, the class version text the factory reports decides:
 
 - the same text, or texts equal once trimmed and with trailing `.0` parts removed (`1.2` and `1.2.0.0`): identical;
-- different: usable but flagged before use (PLG-7). Whether this should instead block the plugin is left open until #12 (parameter sync) and #13 (state sync) show whether a version difference breaks anything. It is the maintainer's call; the comparison tool takes it as a setting.
+- different: usable but flagged before use (PLG-7). Whether this should instead block the plugin is left open until #12 (parameter sync) and #13 (state sync) show whether a version difference breaks anything. It is the maintainer's call; the comparison tool takes it as a setting. The maintainer's current lean (2026-11-15) is to flag, not block: in the first real comparison all 9 plugins shared by class ID differed in version, so blocking would have refused every one of them. This is a lean, not a decision, and stays open until #12 and #13 report what a version difference does to parameters and saved state.
 
 A different class ID is a different plugin, even with the same name. A class ID that `moduleinfo.json` says replaces another is reported, not treated as the same plugin.
 
@@ -47,3 +47,5 @@ A different class ID is a different plugin, even with the same name. A class ID 
 ## How we will know
 
 Issue #14: both maintainers scan their real plugin folders (Windows desktop and the Intel Mac) and compare the inventories. The rule holds if plugins both own come out as shared, and any same-name, different-ID pairs or version disagreements are explained. Issues #12 and #13 then decide whether a version mismatch is flagged or blocked.
+
+Result of the #14 scans (2026-11-14, Windows 11 and macOS 13, VST3 only): 9 plugins shared by class ID, 12 only on Windows, 7 only on the Mac. Class IDs matched across the two systems. Names and vendors did not always match (the Mac reported "FabFilter FabFilter Pro-C 2" and "iZotope, Inc."), and the bundle version was unreliable (Windows adds a build number, macOS FabFilter bundles drop the dots, two Focusrite bundles say `0.0.0`), so the factory's class version is the one to compare. All 9 shared plugins had different versions. The rule held.
