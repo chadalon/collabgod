@@ -35,13 +35,16 @@ class Host : private te::TransportControl::Listener,
 public:
     enum class Audio
     {
-        device,     ///< the system's default output
+        device,     ///< the system's default output, or the device type asked for
         simulated   ///< a simulated sound card driven in real time by a thread of ours
     };
 
     /** audioCpus: how many CPUs Tracktion may use for audio, the audio thread included;
-        0 keeps Tracktion's default, every CPU the machine has. */
-    explicit Host (Audio, int audioCpus = 0);
+        0 keeps Tracktion's default, every CPU the machine has.
+        deviceType: a JUCE device type name, such as "Windows Audio (Exclusive Mode)"; empty
+        keeps the default. bufferSize: samples per block; 0 keeps the device's default.
+        Throws std::runtime_error if the type does not exist or the device will not open. */
+    explicit Host (Audio, int audioCpus = 0, const juce::String& deviceType = {}, int bufferSize = 0);
     ~Host() override;
 
     /** Call regularly on the message thread. Completes settling, applies a waiting
@@ -85,6 +88,9 @@ public:
 
     static constexpr double probeHz = 440.0;
     static constexpr float probeLevel = 0.2f;
+    /** Gain on every model track. Hard panning adds 6 dB in Tracktion, and many clips overlap:
+        at 0 dB the dropout check's session peaked 14 to 18 dB over full scale (README finding 11). */
+    static constexpr float modelTrackGainDb = -24.0f;
     static constexpr double simulatedSampleRate = 44100.0;
     static constexpr int simulatedBlockSize = 441;  // what Chad's Windows Audio device used
 
@@ -97,6 +103,7 @@ private:
     void playbackContextChanged() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void createEngine (bool simulated, int audioCpus);
+    void chooseDevice (const juce::String& deviceType, int bufferSize);
     void buildEdit();
     void resumeIfStoppedUnexpectedly (double now);
 
@@ -128,6 +135,8 @@ struct Options
 {
     int audioCpus = 0;           ///< CPUs Tracktion may use for audio; 0 for its default, all of them
     bool realTimeNodes = true;   ///< play clips without proxies, with WaveNodeRealTime (README finding 4)
+    juce::String deviceType;     ///< audio device type to open; empty for the default
+    int bufferSize = 0;          ///< samples per block to ask the device for; 0 for its default
 };
 
 /** The three commands (Main.cpp dispatches to them). */

@@ -16,6 +16,8 @@ One JSON object per line. Requests go to `engine_projection serve` on stdin; eac
 | `{ "seq", "type": "transport", "play"?, "position"?, "loop"?: [start, end] or null }` | `{ "seq", "ok" }` |
 | `{ "seq", "type": "arm" }` | `{ "seq", "ok" }`: resets the click detector and the simulated sound card's block timings |
 | `{ "seq", "type": "stats" }` | `{ "seq", "ok", settled, settleMs, playing, audibleSec, unexpectedStops, xruns, cpu, maxBlockMs, lateBlocks, detector: { armed, seconds, probeClicks, probeGaps, maxProbeStep, clipEdges, eventEditTimes } }` |
+| `{ "seq", "type": "record", "seconds" }` | `{ "seq", "ok", "seconds" }`: from now on, records the output in the order it goes to the device, for up to `seconds` (1 to 600) |
+| `{ "seq", "type": "recording", "file"? }` | `{ "seq", "ok", "sampleRate", "analysis": { seconds, windows, windowSeconds, probeDbfs, probeLowestDbfs, probeLowestAt, dipWindows, dipDb, leftResidualMaxDbfs, leftResidualMaxAt, crosstalkDb, crosstalkAt, leftPeakDbfs, rightPeakDbfs, samplesOverFullScale }, "file"?, "error"? }`: measures what was recorded (`src/OutputAnalysis.h`), and writes it as a 32-bit float WAV to `file`, an absolute path, if given. Levels of silence are `null` |
 | `{ "seq", "type": "quit" }` | `{ "seq", "ok" }`, then the process exits |
 
 `applyMs` is the time to change Tracktion's edit; `rebuildMs` is the time Tracktion then takes to rebuild its playback graph, which the engine forces straight after the batch so it can be measured. Both are on the engine's message thread.

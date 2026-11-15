@@ -75,7 +75,10 @@ juce::Result Projector::addTrack (const juce::String& id, const juce::var& after
     track->state.setProperty (Host::modelIdProperty, id, nullptr);
     track->setName (id);
     if (auto vol = track->getVolumePlugin())
+    {
         vol->setPan (1.0f);  // the model's audio on the right; the probe is on the left
+        vol->setVolumeDb (Host::modelTrackGainDb);  // keep the mix under full scale
+    }
 
     tracks[id] = track->itemID;
     return juce::Result::ok();

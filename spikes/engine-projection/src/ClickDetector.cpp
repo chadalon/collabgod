@@ -46,6 +46,34 @@ void ClickDetectorPlugin::prepareCapture (double seconds, double captureSampleRa
     captureLength.store (length);
 }
 
+void ClickDetectorPlugin::prepareRecording (double seconds, double recordingSampleRate)
+{
+    const auto length = static_cast<int> (seconds * recordingSampleRate);
+    auto l = std::make_unique<std::vector<float>> (static_cast<size_t> (length), 0.0f);
+    auto r = std::make_unique<std::vector<float>> (static_cast<size_t> (length), 0.0f);
+
+    recordCapacity.store (0);  // the audio thread stops writing before the pointers change
+    recordLeft.store (l->data());
+    recordRight.store (r->data());
+    recordLength.store (0);
+    recordRate = recordingSampleRate;
+    captureStorage.push_back (std::move (l));
+    captureStorage.push_back (std::move (r));
+    recordCapacity.store (length);
+}
+
+juce::AudioBuffer<float> ClickDetectorPlugin::getRecording() const
+{
+    const int length = recordLength.load();
+    juce::AudioBuffer<float> out (2, length);
+    if (length > 0)
+    {
+        out.copyFrom (0, 0, recordLeft.load(), length);
+        out.copyFrom (1, 0, recordRight.load(), length);
+    }
+    return out;
+}
+
 juce::AudioBuffer<float> ClickDetectorPlugin::getCapture() const
 {
     const int length = captureLength.load();
@@ -158,6 +186,19 @@ void ClickDetectorPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     maxProbeStep.store (maxStep);
     samplesWatched.fetch_add (num);
+
+    // Recording in device order: append while there is room.
+    if (const int capacity = recordCapacity.load(); capacity > 0)
+    {
+        const int at = recordLength.load();
+        const int count = juce::jmin (num, capacity - at);
+        if (count > 0)
+        {
+            std::copy (l, l + count, recordLeft.load() + at);
+            std::copy (r, r + count, recordRight.load() + at);
+            recordLength.store (at + count);
+        }
+    }
 
     // Capture by edit time, so a check can ask "what played at 2.5 s on the timeline".
     const int length = captureLength.load();

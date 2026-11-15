@@ -26,7 +26,9 @@ namespace te = tracktion;
     there are counted for information only ("clip edges").
 
     Optionally records both channels by edit time while the transport plays, so a test
-    can check what played where on the timeline, whatever the start-up delay was.
+    can check what played where on the timeline, whatever the start-up delay was. And
+    optionally records them in the order they go to the device, so the output can be
+    analysed and listened to (OutputAnalysis.h).
 
     Real-time safety: applyToBuffer reads and writes only atomics, members owned by the
     audio thread, and capture buffers allocated beforehand on the message thread. It never
@@ -65,6 +67,14 @@ public:
     juce::AudioBuffer<float> getCapture() const;
     double getCaptureSampleRate() const noexcept    { return captureRate; }
 
+    /** Records the output as it goes to the device, block after block from now on, whether
+        playing or not and wherever the playhead is, for up to `seconds`, once the detector
+        has been armed (it watches nothing before). Allocates; call
+        once, before the audio you want. getRecording copies what has been recorded so far. */
+    void prepareRecording (double seconds, double recordingSampleRate);
+    juce::AudioBuffer<float> getRecording() const;
+    double getRecordingSampleRate() const noexcept  { return recordRate; }
+
     static constexpr int maxEvents = 16;
 
     struct Counts
@@ -81,7 +91,7 @@ public:
 
     /** Thresholds. A 0.2 sine at 440 Hz and 44.1 kHz has a second difference of at most 0.0008. */
     static constexpr float clickStep = 0.02f;
-    static constexpr float clipEdgeStep = 0.05f;
+    static constexpr float clipEdgeStep = 0.003f;  // scaled with the model tracks' -24 dB (Host::modelTrackGainDb)
     static constexpr float silentLevel = 0.001f;
     static constexpr int gapSamples = 16;
     static constexpr int eventHoldOffSamples = 256;
@@ -105,6 +115,11 @@ private:
     std::atomic<float*> captureLeft { nullptr }, captureRight { nullptr };
     std::atomic<int> captureLength { 0 };
     double captureRate = 0.0;
+
+    // Recording: the same scheme; the audio thread appends while there is room.
+    std::atomic<float*> recordLeft { nullptr }, recordRight { nullptr };
+    std::atomic<int> recordCapacity { 0 }, recordLength { 0 };
+    double recordRate = 0.0;
 
     void noteEvent (double editTime) noexcept;
 

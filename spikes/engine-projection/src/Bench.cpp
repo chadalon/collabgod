@@ -50,7 +50,7 @@ int bench (const juce::File& outFolder, bool deviceAudio, Options options)
         return 1;
     }
 
-    Host host (deviceAudio ? Host::Audio::device : Host::Audio::simulated, options.audioCpus);
+    Host host (deviceAudio ? Host::Audio::device : Host::Audio::simulated, options.audioCpus, options.deviceType, options.bufferSize);
     Projector projector (host, options.realTimeNodes);
 
     while (! host.isSettled())

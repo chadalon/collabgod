@@ -23,6 +23,11 @@
  * thread), and transport stops nobody asked for (#101). At the end it checks the engine
  * still matches the model. A report is saved as JSON in the current folder.
  *
+ * It also records the engine's output, as it goes to the device, and measures it: whether
+ * anything but the probe is on the left, whether the probe ever dips, and whether anything
+ * goes over full scale. What you hear that is not in that recording happens after the
+ * engine: in the operating system's mixer, the interface or the headphones.
+ *
  * Options:
  *   --bin <path>            engine_projection (or set ENGINE_PROJECTION_BIN)
  *   --seconds <n>           length of the edits phase (default 30)
@@ -33,12 +38,16 @@
  *   --simulated-audio       no device: a simulated sound card (for trying it without speakers)
  *   --tracktion-wave-nodes  play clips the way Tracktion does by default (finding 4), to compare
  *   --audio-cpus <n>        CPUs Tracktion may use for audio (default: all)
+ *   --device-type <name>    audio device type, such as "Windows Audio (Exclusive Mode)"
+ *                           (default: the system's; a wrong name lists the ones there are)
+ *   --buffer-size <n>       samples per block to ask the device for (default: the device's)
+ *   --record <file.wav>     also save what the engine sent to the device, as a WAV
  *   --seed <n>              random seed (default 11)
  */
 
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { emptyState, type SessionState } from '../../../session-model/src/model';
 import { defaultTimebase } from './document';
 import { RandomEditor, seededRandom } from './edits';
@@ -90,6 +99,8 @@ async function main(): Promise<void> {
   const extraArgs = [
     ...(flag('--tracktion-wave-nodes') ? ['--tracktion-wave-nodes'] : []),
     ...(option('--audio-cpus') ? ['--audio-cpus', option('--audio-cpus') as string] : []),
+    ...(option('--device-type') ? ['--device-type', option('--device-type') as string] : []),
+    ...(option('--buffer-size') ? ['--buffer-size', option('--buffer-size') as string] : []),
   ];
   const log: string[] = [];
   const engine = new EngineProcess(binary as string, {
@@ -97,11 +108,14 @@ async function main(): Promise<void> {
     extraArgs,
     onLog: (line) => {
       log.push(line);
-      if (/stopped without being asked|Device lists changed|settled/.test(line)) console.log(`  [engine] ${line}`);
+      if (/stopped without being asked|Device lists changed|settled|samples per block|ERROR/.test(line)) console.log(`  [engine] ${line}`);
     },
   });
 
-  const audio = await engine.hello();
+  const audio = await engine.hello().catch((error: unknown) => {
+    console.error(`The engine did not start: ${String(error)}`);
+    process.exit(2);
+  });
   console.log(`Audio: ${audio.type} / ${audio.name}, ${audio.sampleRate} Hz, ${audio.blockSize} samples per block, ${audio.audioCpus} of ${audio.machineCpus} CPUs for audio`);
   console.log(`Samples: ${library.hashes.length} ${option('--samples') ? `from ${option('--samples')}` : 'generated tones'}`);
   const settled = await engine.waitUntilSettled();
@@ -206,10 +220,14 @@ async function main(): Promise<void> {
     });
   };
 
+  // Room for the three phases and the time between them.
+  await engine.record(10 + editSeconds + 5 + 30);
   await phase('quiet', 10, false);
   await phase('edits', editSeconds, true);
   await phase('after', 5, false);
 
+  const recordTo = option('--record');
+  const recording = await engine.recording(recordTo === undefined ? undefined : resolve(recordTo));
   const drift = await projector.verify();
   await engine.transport({ play: false });
   await engine.quit();
@@ -230,6 +248,30 @@ async function main(): Promise<void> {
   console.log(`Edits the model rejected (nothing to change): ${rejected}. Rebuilds after a refused command: ${projectorRebuilds}.`);
   console.log(drift === undefined ? 'The engine matches the model at the end.' : `DRIFT: ${drift}`);
 
+  const out = recording.analysis;
+  const dbfs = (v: number | null) => (v === null ? 'silence' : `${v.toFixed(1)} dBFS`);
+  console.log(`\nWhat the engine sent to the device (${out.seconds.toFixed(1)} s, measured before ${audio.simulated ? 'the simulated sound card' : 'the operating system, the interface and the headphones'}):`);
+  console.log(
+    `  Left tone: ${dbfs(out.probeDbfs)}, lowest ${dbfs(out.probeLowestDbfs)} at ${out.probeLowestAt.toFixed(2)} s; ` +
+      `${out.dipWindows} of ${out.windows} windows of ${out.windowSeconds * 1000} ms more than ${out.dipDb} dB down`,
+  );
+  console.log(
+    `  Right side on the left: ${out.crosstalkDb === null ? 'none measurable' : `at worst ${(-out.crosstalkDb).toFixed(1)} dB below the right (at ${out.crosstalkAt.toFixed(2)} s)`}; ` +
+      `anything that is not the tone, at most ${dbfs(out.leftResidualMaxDbfs)}`,
+  );
+  console.log(`  Peaks: left ${dbfs(out.leftPeakDbfs)}, right ${dbfs(out.rightPeakDbfs)}; ${out.samplesOverFullScale} samples over full scale`);
+  const leaks = out.crosstalkDb !== null && out.crosstalkDb > -60;
+  if (out.dipWindows === 0 && !leaks) {
+    console.log('  The output is clean. A dip in the left tone, or right-side sound in the left ear, that you hear happens after the engine.');
+  } else {
+    console.log(`  The engine's own output ${[out.dipWindows > 0 ? 'dips' : '', leaks ? 'leaks the right side onto the left' : ''].filter(Boolean).join(' and ')}.`);
+  }
+  if (out.samplesOverFullScale > 0) {
+    console.log('  The output went over full scale. A system mixer or interface may turn the whole output down when that happens, which would duck the left tone too.');
+  }
+  if (recording.file) console.log(`  Recording: ${recording.file}`);
+  if (recording.error) console.log(`  ${recording.error}`);
+
   const edits = results.find((r) => r.name === 'edits');
   const quiet = results.find((r) => r.name === 'quiet');
   // A late block on the simulated sound card is what a dropout would be on a real one.
@@ -240,10 +282,18 @@ async function main(): Promise<void> {
       ? 'FAIL: the engine drifted from the model'
       : !clean(quiet)
         ? 'INCONCLUSIVE: this machine drops out with no edits at all; fix that first (device, buffer size)'
-        : clean(edits)
+        : edits !== undefined && edits.unexpectedStops > 0 && (edits.xruns ?? 0) === 0 && (edits.lateBlocks ?? 0) === 0
+          ? 'INCONCLUSIVE: the transport stopped by itself during the edits (#101), and restarting it is not seamless; run again without plugging devices in'
+          : clean(edits)
           ? 'PASS: no dropout detected during edits' + (edits?.xruns === null && !audio.simulated ? ' (this device has no dropout counter: listen too)' : '')
           : 'FAIL: dropouts during edits that were not there without them';
   console.log(`\n${verdict}`);
+  if (out.samplesOverFullScale > 0) {
+    console.log(
+      `WARNING: the output went over full scale (${out.samplesOverFullScale} samples, peak ${dbfs(out.rightPeakDbfs)} on the right). ` +
+        'What you heard may be the device or the system clipping or limiting it. With --samples, try fewer or quieter samples.',
+    );
+  }
   if (results.some((r) => r.unexpectedStops > 0)) {
     console.log('Note: the transport stopped by itself and was restarted; that is the MIDI device problem in #101, not this check.');
   }
@@ -253,9 +303,10 @@ async function main(): Promise<void> {
     when: new Date().toISOString(),
     platform: process.platform,
     audio,
-    options: { editSeconds, rate, seed: number('--seed', 11), extraArgs, samples: option('--samples') ?? 'generated' },
+    options: { editSeconds, rate, seed: number('--seed', 11), extraArgs, samples: option('--samples') ?? 'generated', record: recordTo ?? null },
     session: { tracks: state.trackOrder.length, clips: Object.keys(state.clips).length },
     phases: results,
+    output: { ...out, file: recording.file ?? null },
     updateMs: { p50: percentile(updateMs, 50), p95: percentile(updateMs, 95), max: percentile(updateMs, 100) },
     rebuildMs: { p50: percentile(rebuildMs, 50), p95: percentile(rebuildMs, 95), max: percentile(rebuildMs, 100) },
     rejected,

@@ -37,6 +37,8 @@ target_sources(engine_projection PRIVATE
     src/Host.cpp
     src/Host.h
     src/Main.cpp
+    src/OutputAnalysis.cpp
+    src/OutputAnalysis.h
     src/SelfTest.cpp
     src/Serve.cpp
     src/Wav.cpp

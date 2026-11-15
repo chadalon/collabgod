@@ -10,11 +10,15 @@
 //      many right at the playhead. The probe must stay clean: no click, no gap.
 //   D. Rebuild from scratch while playing: reset, then add everything back in one batch.
 //      The readback matches, and the probe stays clean.
+//   E. The output analysis the dropout check uses finds bleed, dips and overs in a made-up
+//      signal, and finds none in a clean one. (B also records the engine's real output and
+//      checks the left channel carries nothing but the probe.)
 
 #include <iostream>
 
 #include "Commands.h"
 #include "Host.h"
+#include "OutputAnalysis.h"
 #include "ToneCheck.h"
 #include "Wav.h"
 
@@ -217,6 +221,7 @@ public:
 
         check (pumpUntil (host, [&] { return host.getEdit().getTransport().isPlaying() && host.getAudibleSeconds() >= 0.5; }, 5000.0),
                "transport playing and past 0.5 s");
+        detector.prepareRecording (4.0, rate);  // what goes to the device, in device order
         const double editAt = host.getAudibleSeconds();
 
         // Half a second before the first clip: move it to 3 s on the other track, remove
@@ -231,6 +236,7 @@ public:
         print ("  edits applied at " + juce::String (editAt, 3) + " s: " + timings.describe());
 
         check (pumpUntil (host, [&] { return host.getAudibleSeconds() >= 4.2; }, 8000.0), "played to 4.2 s");
+        const auto recording = detector.getRecording();
         host.setPlaying (false);
         pumpFor (host, 50.0);
 
@@ -242,7 +248,9 @@ public:
         };
 
         const auto db = [] (double a) { return juce::String (juce::Decibels::gainToDecibels (a, -120.0), 1) + " dB"; };
-        constexpr double present = 0.1, absent = 0.0025;  // clips are 0.25 peak; absent means 40 dB down
+        // Clips are 0.25 peak, +6 dB from hard panning, -24 dB of track gain: 0.032 on the right.
+        // Absent means 40 dB below that.
+        constexpr double present = 0.015, absent = 0.0003;
 
         struct Window { const char* what; double from, to, hz; bool shouldPlay; };
         const Window windows[] {
@@ -267,7 +275,51 @@ public:
         const auto probeLeak = measure (0, 3.1, 3.9, 660.0);
         check (probeLeak < absent, "left: no clip audio on the probe's side, " + db (probeLeak));
 
+        const auto output = analyseOutput (recording, detector.getRecordingSampleRate(), Host::probeHz);
+        print ("  output recorded in device order: " + juce::JSON::toString (output.toVar(), true));
+        check (output.seconds > 3.0, "recorded " + juce::String (output.seconds, 2) + " s of output");
+        check (output.dipWindows == 0, "left: the probe never dips, " + juce::String (output.dipWindows) + " windows more than 1 dB down");
+        check (! (output.crosstalkDb > -40.0), "left: no clip audio leaks across, worst "
+                                                   + juce::String (output.crosstalkDb, 1) + " dB below the right");
+        check (output.samplesOverFullScale == 0, "no samples over full scale");
+
         reportDetector ("B");
+    }
+
+    //==============================================================================
+    void outputAnalysis()
+    {
+        print ("E. Output analysis");
+        constexpr double rate = 44100.0;
+        const int n = static_cast<int> (3.0 * rate);
+        const auto make = [&] (double bleed, double dipFrom, double dipTo, float rightLevel)
+        {
+            juce::AudioBuffer<float> b (2, n);
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = i / rate;
+                const double right = rightLevel * std::sin (juce::MathConstants<double>::twoPi * 660.0 * t);
+                const double gain = t >= dipFrom && t < dipTo ? 0.5 : 1.0;  // a 6 dB dip
+                b.setSample (0, i, static_cast<float> (gain * 0.2 * std::sin (juce::MathConstants<double>::twoPi * Host::probeHz * t + 0.3)
+                                                       + bleed * right));
+                b.setSample (1, i, static_cast<float> (right));
+            }
+            return b;
+        };
+
+        const auto clean = analyseOutput (make (0.0, 0.0, 0.0, 0.3f), rate, Host::probeHz);
+        check (clean.windows == 60, "60 windows of 50 ms in 3 s");
+        check (std::abs (juce::Decibels::gainToDecibels (clean.probeLevel) - juce::Decibels::gainToDecibels (0.2)) < 0.01,
+               "clean: probe level " + juce::String (juce::Decibels::gainToDecibels (clean.probeLevel), 2) + " dBFS");
+        check (clean.dipWindows == 0, "clean: no dips");
+        check (! (clean.crosstalkDb > -100.0), "clean: no crosstalk, " + juce::String (clean.crosstalkDb, 1) + " dB");
+        check (clean.samplesOverFullScale == 0, "clean: nothing over full scale");
+
+        const auto dirty = analyseOutput (make (0.01, 1.0, 1.5, 1.2f), rate, Host::probeHz);
+        check (std::abs (dirty.crosstalkDb + 40.0) < 0.5, "1% bleed reads as " + juce::String (dirty.crosstalkDb, 1) + " dB (-40)");
+        check (dirty.dipWindows == 10, "a 0.5 s dip covers " + juce::String (dirty.dipWindows) + " windows (10)");
+        check (dirty.probeLowestAt >= 1.0 && dirty.probeLowestAt < 1.5, "the dip is found at " + juce::String (dirty.probeLowestAt, 2) + " s (1.0 to 1.5)");
+        check (dirty.samplesOverFullScale > 0, "a right channel at 1.2 is over full scale: " + juce::String (dirty.samplesOverFullScale) + " samples");
     }
 
     //==============================================================================
@@ -499,6 +551,7 @@ int selfTest (const juce::File& outFolder, Options options)
     const bool settled = pumpUntil (host, [&] { return host.isSettled(); }, 10000.0);
     test.check (settled, "engine settled after " + juce::String (host.getSettleMs(), 0) + " ms");
 
+    test.outputAnalysis();
     test.contract();
     if (! test.failed) test.editsChangeWhatPlays();
     if (! test.failed) test.storm();

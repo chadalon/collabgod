@@ -14,6 +14,7 @@
 
 #include "Commands.h"
 #include "Host.h"
+#include "OutputAnalysis.h"
 
 namespace projection
 {
@@ -86,7 +87,7 @@ struct LineReader
 
 int serve (bool simulated, Options options)
 {
-    Host host (simulated ? Host::Audio::simulated : Host::Audio::device, options.audioCpus);
+    Host host (simulated ? Host::Audio::simulated : Host::Audio::device, options.audioCpus, options.deviceType, options.bufferSize);
     Projector projector (host, options.realTimeNodes);
     static LineReader reader;  // outlives the detached thread's last use
     reader.start();
@@ -162,6 +163,30 @@ int serve (bool simulated, Options options)
                                   { "maxBlockMs", host.getMaxBlockMs() },
                                   { "lateBlocks", host.getLateBlocks() },
                                   { "detector", detectorStats (host.getDetector()) } }));
+        }
+        else if (type == "record")
+        {
+            const double seconds = juce::jlimit (1.0, 600.0, static_cast<double> (request["seconds"]));
+            host.getDetector().prepareRecording (seconds, host.getAudioInfo().sampleRate);
+            reply (seq, object ({ { "ok", true }, { "seconds", seconds } }));
+        }
+        else if (type == "recording")
+        {
+            auto& detector = host.getDetector();
+            const auto recording = detector.getRecording();
+            const double rate = detector.getRecordingSampleRate();
+            const auto analysis = analyseOutput (recording, rate, Host::probeHz);
+            auto body = object ({ { "ok", true }, { "sampleRate", rate }, { "analysis", analysis.toVar() } });
+
+            if (const auto path = request["file"].toString(); path.isNotEmpty())
+            {
+                const juce::File file (path);
+                const bool written = writeRecording (file, recording, rate);
+                body.getDynamicObject()->setProperty ("file", written ? juce::var (file.getFullPathName()) : juce::var());
+                if (! written)
+                    body.getDynamicObject()->setProperty ("error", "could not write " + file.getFullPathName());
+            }
+            reply (seq, body);
         }
         else if (type == "quit")
         {

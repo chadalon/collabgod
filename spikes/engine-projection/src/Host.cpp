@@ -3,6 +3,7 @@
 #include "Host.h"
 
 #include <iostream>
+#include <stdexcept>
 
 #if JUCE_LINUX || JUCE_MAC
  #include <time.h>
@@ -111,11 +112,13 @@ private:
     juce::MidiBuffer midi;
 };
 
-Host::Host (Audio audio, int audioCpus)
+Host::Host (Audio audio, int audioCpus, const juce::String& deviceType, int bufferSize)
 {
     if (audio == Audio::device)
     {
         createEngine (false, audioCpus);
+        if (deviceType.isNotEmpty() || bufferSize > 0)
+            chooseDevice (deviceType, bufferSize);
 
         if (auto* device = engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
         {
@@ -200,6 +203,46 @@ void Host::createEngine (bool simulated, int audioCpus)
     // Neither is registered by default (engine-toolchain finding 5).
     engine->getPluginManager().createBuiltInType<te::ToneGeneratorPlugin>();
     engine->getPluginManager().createBuiltInType<ClickDetectorPlugin>();
+}
+
+void Host::chooseDevice (const juce::String& deviceType, int bufferSize)
+{
+    auto& dm = engine->getDeviceManager().deviceManager;
+
+    if (deviceType.isNotEmpty())
+    {
+        juce::StringArray types;
+        for (auto* type : dm.getAvailableDeviceTypes())
+            types.add (type->getTypeName());
+
+        if (! types.contains (deviceType))
+            throw std::runtime_error (("no audio device type \"" + deviceType + "\"; this machine has: \""
+                                       + types.joinIntoString ("\", \"") + "\"").toStdString());
+
+        dm.setCurrentAudioDeviceType (deviceType, true);
+    }
+
+    if (bufferSize > 0)
+    {
+        auto setup = dm.getAudioDeviceSetup();
+        setup.bufferSize = bufferSize;
+        const auto error = dm.setAudioDeviceSetup (setup, true);
+        if (error.isNotEmpty())
+            throw std::runtime_error (("could not set " + juce::String (bufferSize) + " samples per block: " + error).toStdString());
+    }
+
+    auto* device = dm.getCurrentAudioDevice();
+    if (device == nullptr)
+        throw std::runtime_error (("no device opened for \"" + dm.getCurrentAudioDeviceType() + "\"").toStdString());
+
+    if (bufferSize > 0 && device->getCurrentBufferSizeSamples() != bufferSize)
+    {
+        juce::StringArray sizes;
+        for (auto size : device->getAvailableBufferSizes())
+            sizes.add (juce::String (size));
+        log ("Asked for " + juce::String (bufferSize) + " samples per block, the device gave "
+             + juce::String (device->getCurrentBufferSizeSamples()) + ". It offers: " + sizes.joinIntoString (", "));
+    }
 }
 
 void Host::buildEdit()

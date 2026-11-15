@@ -59,9 +59,41 @@ export interface AudioInfo {
   readonly machineCpus: number;
 }
 
+/** What the engine sent to the device, measured on its output (src/OutputAnalysis.h). Levels in dBFS; null for silence. */
+export interface OutputAnalysis {
+  readonly seconds: number;
+  readonly windows: number;
+  readonly windowSeconds: number;
+  /** The probe tone's usual level on the left (median over the windows). */
+  readonly probeDbfs: number | null;
+  readonly probeLowestDbfs: number | null;
+  /** Seconds into the recording. */
+  readonly probeLowestAt: number;
+  /** Windows where the probe was more than `dipDb` below its usual level. */
+  readonly dipWindows: number;
+  readonly dipDb: number;
+  /** The loudest window of anything on the left that is not the probe. */
+  readonly leftResidualMaxDbfs: number | null;
+  readonly leftResidualMaxAt: number;
+  /** Worst ratio of non-probe signal on the left to the right channel, in dB, where the right was louder than -40 dBFS. */
+  readonly crosstalkDb: number | null;
+  readonly crosstalkAt: number;
+  readonly leftPeakDbfs: number | null;
+  readonly rightPeakDbfs: number | null;
+  readonly samplesOverFullScale: number;
+}
+
+export interface RecordingReply {
+  readonly sampleRate: number;
+  readonly analysis: OutputAnalysis;
+  /** Where the WAV was written, when one was asked for. */
+  readonly file?: string | null;
+  readonly error?: string;
+}
+
 export interface EngineOptions {
   readonly simulatedAudio?: boolean;
-  /** Extra arguments for `serve`, such as `--tracktion-wave-nodes` or `--audio-cpus 1`. */
+  /** Extra arguments for `serve`, such as `--tracktion-wave-nodes`, `--audio-cpus 1` or `--device-type <name>`. */
   readonly extraArgs?: readonly string[];
   /** Where the engine's log (stderr) goes. Default: discarded. */
   readonly onLog?: (line: string) => void;
@@ -135,6 +167,16 @@ export class EngineProcess {
   /** Resets the click detector's counts and the simulated sound card's block times. */
   async arm(): Promise<void> {
     await this.request('arm');
+  }
+
+  /** Starts recording the output as it goes to the device, for up to `seconds`. */
+  async record(seconds: number): Promise<void> {
+    await this.request('record', { seconds });
+  }
+
+  /** Analyses what has been recorded so far, and writes it as a WAV if `file` (an absolute path) is given. */
+  async recording(file?: string): Promise<RecordingReply> {
+    return (await this.request('recording', file === undefined ? {} : { file })) as unknown as RecordingReply;
   }
 
   async stats(): Promise<EngineStats> {
