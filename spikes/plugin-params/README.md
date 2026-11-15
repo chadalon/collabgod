@@ -86,7 +86,7 @@ Check each of these and note what happened:
 - [ ] **Preset change.** Load a preset in one copy. Many parameters change at once; note how many messages it sends, and whether the other copy ends up sounding the same. (Non-parameter state, such as a wavetable, is issue #13; this only records what happens.)
 - [ ] **Versions.** If the two machines have different versions of a plugin, load it in both: the log shows a `WARNING` for every difference in the parameter lists. Note them.
 
-Then press **Save report** in each copy. It writes a Markdown report to `Documents/CollabGod/plugin-params` and copies it to the clipboard: paste it into the issue. Tick **Log events to CSV** before a test to get every event with a timestamp, in the same folder.
+Then press **Save report** in each copy. It writes a Markdown report to `Documents/CollabGod Spike Reports/plugin-params` and copies it to the clipboard: paste it into the issue. Tick **Log events to CSV** before a test to get every event with a timestamp, in the same folder.
 
 ### Plugins
 
@@ -96,7 +96,8 @@ Serum 2 and at least two others, ideally of different kinds: a synth from anothe
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | CollabGod Test Synth (this repo) | 1.0.0 and 2.0.0, Linux (cloud) | 4 / 6 | yes, 153 reports/s while it moves itself | yes | yes | yes | 153, 23 | only when told to | not tested | version 2 warned about, matched by ID |
 | Serum 2 | | | | | | | | | | |
-| | | | | | | | | | | |
+| Lounge Lizard Session 4 (AAS) | 4, Windows 11, two copies on one machine | 23 / 2104 (the rest are likely MIDI controller placeholders, 16 × 128) | yes, smooth to the eye | yes | yes | the `held by` label shows; not tried by two people at once | 76, 24 (host sweep: 175, 28) | no late echoes: 0 sent by the receiving copy with the echo window off | not synced: the plugin reports no parameter changes when a preset loads | no crackle at any throttle; pitch and mod wheels not synced (MIDI, not parameters); at 100 ms, 16 sent/s, above the expected 10 to 12 |
+| FabFilter Pro-Q 2 (effect) | 2.2.2.0 on Windows 11 and 2.1.1.0 on macOS, two machines on the same Wi-Fi | 190 / 326 | yes, no noticeable lag | used (331 changes from the sliders) | yes, 0 sent on both machines while both played the sweep | yes, between the two machines: the last to let go won | 40, 36 (session mixed sweeps and presets); host sweep: 87, 28 | none: the receiving copy sent 0 with the echo window off, with either machine receiving | synced and sounds the same: the plugin signals "everything changed" and Tracktion re-reads all 190; unchanged values are dropped (773), the rest go in a few messages | different versions synced by ID: the only difference logged was the version |
 | | | | | | | | | | | |
 
 ## Findings
