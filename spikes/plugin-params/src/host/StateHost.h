@@ -71,6 +71,8 @@ public:
     static SavedState read (juce::AudioPluginInstance&);
     /** The component and controller parts of a JUCE VST3 state blob, decoded. Empty if it is not one. */
     static std::pair<juce::MemoryBlock, juce::MemoryBlock> splitVst3State (const juce::MemoryBlock&);
+    /** The reverse of splitVst3State: a blob JUCE's VST3 host loads. */
+    static juce::MemoryBlock joinVst3State (const juce::MemoryBlock& component, const juce::MemoryBlock& controller);
     /** Path-like strings in a saved state, from inside its component and controller parts. */
     static std::vector<std::string> pathsIn (const juce::MemoryBlock&);
 

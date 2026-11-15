@@ -11,4 +11,6 @@ namespace spike
 int runSelfTest (const juce::StringArray& args);
 /** Runs the plugin state self-test (#13). Returns the exit code. */
 int runStateSelfTest (const juce::StringArray& args);
+/** Measures real plugins' saved state (#13, src/probe/StateProbe.cpp). Returns the exit code. */
+int runStateProbe (const juce::StringArray& args);
 }

@@ -124,6 +124,18 @@ std::pair<juce::MemoryBlock, juce::MemoryBlock> StateHost::splitVst3State (const
     return out;
 }
 
+juce::MemoryBlock StateHost::joinVst3State (const juce::MemoryBlock& component, const juce::MemoryBlock& controller)
+{
+    juce::XmlElement xml ("VST3PluginState");
+    if (! component.isEmpty())
+        xml.createNewChildElement ("IComponent")->addTextElement (component.toBase64Encoding());
+    if (! controller.isEmpty())
+        xml.createNewChildElement ("IEditController")->addTextElement (controller.toBase64Encoding());
+    juce::MemoryBlock out;
+    juce::AudioProcessor::copyXmlToBinary (xml, out);
+    return out;
+}
+
 std::vector<std::string> StateHost::pathsIn (const juce::MemoryBlock& b)
 {
     auto [component, controller] = splitVst3State (b);

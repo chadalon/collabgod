@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Spike for issue #12. Throwaway code: product code never includes this.
+// Spike for issues #12 and #13. Throwaway code: product code never includes this.
 //
 // The app for trying real plugins on real machines. Run two copies, on one
 // machine or two, load the same VST3 in both, connect them, and move a knob in
-// one plugin window: it moves in the other. The window shows the message rates
-// and counters the findings need, and writes a report to paste into the issue.
-// See README.md, "Try it with real plugins".
+// one plugin window: it moves in the other. Load a preset or edit an LFO: the
+// plugin's saved state follows (#13). The window shows the message rates and
+// counters the findings need, and writes a report to paste into the issue.
+// See README.md, "Try it with real plugins", and README-STATE.md.
 
 #include <JuceHeader.h>
 
@@ -118,6 +119,18 @@ public:
         addButton (automationButton, "Add sweep automation", [this] { addAutomation(); });
         addButton (reportButton, "Save report", [this] { saveReport(); });
         addButton (peaksButton, "Reset peaks", [this] { rates.resetPeaks(); });
+        addButton (sendStateButton, "Send state now", [this] { session->getState().sendNow (PluginSession::nowMs()); });
+        addButton (readStateButton, "Read state now", [this] { session->getState().checkNow (PluginSession::nowMs()); });
+
+        stateButton.setButtonText ("Sync state");
+        stateButton.setToggleState (true, juce::dontSendNotification);
+        stateButton.onClick = [this] { applyOptions(); };
+        addAndMakeVisible (stateButton);
+
+        detectBox.addItemList ({ "Find state changes from hints", "Hints, and poll while the window is open", "Hints, and poll all the time" }, 1);
+        detectBox.setSelectedId (2, juce::dontSendNotification);
+        detectBox.onChange = [this] { applyOptions(); };
+        addAndMakeVisible (detectBox);
 
         muteButton.setButtonText ("Mute this one");
         muteButton.onClick = [this] { session->getEdit().getMasterVolumePlugin()->setVolumeDb (muteButton.getToggleState() ? -100.0f : 0.0f); };
@@ -160,8 +173,9 @@ public:
         logView.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
         addAndMakeVisible (logView);
 
-        setSize (1100, 760);
+        setSize (1100, 800);
         startTimer (250);
+        mouseTimer.startTimerHz (60);
         startedMs = PluginSession::nowMs();
 
         // Optional shortcuts, so two copies can be started from a script:
@@ -179,6 +193,7 @@ public:
     ~MainComponent() override
     {
         stopTimer();
+        mouseTimer.stopTimer();
         pluginWindow.reset();
         link.close();
         session.reset();
@@ -213,6 +228,15 @@ public:
         echoBox.setBounds (r2.removeFromLeft (160));
         r2.removeFromLeft (6);
         logButton.setBounds (r2.removeFromLeft (150));
+
+        auto r3 = row();
+        stateButton.setBounds (r3.removeFromLeft (100));
+        r3.removeFromLeft (6);
+        detectBox.setBounds (r3.removeFromLeft (300));
+        r3.removeFromLeft (6);
+        sendStateButton.setBounds (r3.removeFromLeft (120));
+        r3.removeFromLeft (6);
+        readStateButton.setBounds (r3.removeFromLeft (120));
 
         auto left = r.removeFromLeft (r.getWidth() / 2);
         filterEditor.setBounds (left.removeFromTop (26));
@@ -380,6 +404,37 @@ private:
         o.flushIntervalMs = throttles[juce::jlimit (0, 4, throttleBox.getSelectedId() - 1)];
         o.echoWindowMs = windows[juce::jlimit (0, 3, echoBox.getSelectedId() - 1)];
         session->getSync().setOptions (o);
+
+        static const spike::Detect detects[] { spike::Detect::hints, spike::Detect::pollWindow, spike::Detect::pollAlways };
+        auto& state = session->getState();
+        state.enabled = stateButton.getToggleState();
+        state.detect = detects[juce::jlimit (0, 2, detectBox.getSelectedId() - 1)];
+    }
+
+    /** Watches the mouse over the plugin's window: letting go of it there is a
+        sign that something in the plugin changed, whatever the plugin says. The
+        plugin's own view is not a JUCE component, so this asks the system for
+        the button state and the pointer position instead of receiving events. */
+    void watchMouse()
+    {
+        auto& state = session->getState();
+        state.windowOpen = pluginWindow != nullptr;
+
+        if (pluginWindow == nullptr)
+            return;
+
+        const bool down = juce::ModifierKeys::getCurrentModifiersRealtime().isAnyMouseButtonDown();
+        const auto where = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
+        const bool inside = pluginWindow->getScreenBounds().contains (where);
+
+        // A press that started inside counts until it is let go, wherever the pointer is then.
+        if (down && inside)
+            pressedInWindow = true;
+
+        state.windowMouse (down && pressedInWindow, PluginSession::nowMs());
+
+        if (! down)
+            pressedInWindow = false;
     }
 
     void updateEventLog()
@@ -615,6 +670,49 @@ private:
             if (! lines.isEmpty())
                 t << "\nParameter lists differ from " << m << ":\n  " << lines.joinIntoString ("\n  ") << "\n";
 
+        t << "\n" << stateText();
+        return t;
+    }
+
+    /** The plugin's saved state (#13). */
+    juce::String stateText() const
+    {
+        auto& state = session->getState();
+        const auto& s = state.getStats();
+        const auto& y = state.getSync().stats();
+        const auto& last = state.lastRead();
+        juce::String t;
+        auto line = [&t] (const char* name, const juce::String& v) { t << juce::String (name).paddedRight (' ', 38) << v << "\n"; };
+        auto n = [] (std::uint64_t v) { return juce::String ((juce::int64) v); };
+        auto kib = [] (std::uint64_t v) { return juce::String ((double) v / 1024.0, 1) + " KiB"; };
+
+        t << "State: " << (state.enabled ? "synced" : "not synced") << ", " << detectBox.getText().toLowerCase()
+          << (state.getSync().isNoisy() ? "; NOISY: it changes with nothing done, so it is not polled" : "") << "\n";
+        line ("size now", kib (last.bytes.getSize()) + " (component " + kib (last.componentBytes) + ", controller " + kib (last.controllerBytes) + ")");
+        line ("reads", n (y.reads) + ", " + juce::String (y.reads > 0 ? y.readMsTotal / (double) y.reads : 0.0, 2) + " ms on average, "
+                      + juce::String (y.readMsMax, 2) + " ms at most; polling every " + juce::String (state.getSync().pollIntervalMs(), 0) + " ms");
+        line ("hints: setDirty", n (s.hintSetDirty));
+        line ("hints: restart / program", n (s.hintRestart));
+        line ("hints: unchanged parameter reports", n (s.hintSameValues));
+        line ("hints: mouse let go in the window", n (s.hintWindow));
+        line ("changes found here", n (y.localChanges) + " (" + n (y.unprompted) + " with no hint or activity)");
+        line ("taken as settling after a load", n (y.absorbedSettling));
+        line ("taken as others' parameters", n (y.absorbedRemoteParams));
+        line ("announced", n (s.announcesSent) + " (" + n (y.forced) + " early, after someone else's)");
+        line ("received / older, ignored", n (y.received) + " / " + n (y.stale));
+        line ("already had it (same hash)", n (y.matched));
+        line ("fetched / applied", n (y.fetches) + " / " + n (s.applies) + ", applying took "
+                                   + juce::String (s.applies > 0 ? s.applyMsTotal / (double) s.applies : 0.0, 1) + " ms on average, "
+                                   + juce::String (s.applyMsMax, 1) + " at most");
+        line ("last transfer", kib (s.lastRawSize) + ", " + kib (s.lastCompressedSize) + " compressed, " + juce::String (s.lastTransferMs, 0) + " ms");
+        line ("state data sent / received", kib (s.dataBytesSent) + " / " + kib (s.dataBytesReceived));
+        line ("parameters it changed silently", n (y.paramsDiscovered));
+        line ("parameters put back after a load", n (y.paramsPutBack));
+        line ("files named but not on this machine", n (s.pathsMissingHere));
+
+        for (const auto& [outcome, count] : s.outcomes)
+            line (("applied: " + outcome).toRawUTF8(), n (count));
+
         return t;
     }
 
@@ -638,6 +736,10 @@ private:
 
         t << "```\n";
 
+        const auto history = session->getState().history();
+        if (! history.isEmpty())
+            t << "\nState events:\n\n```\n" << history.joinIntoString ("\n") << "\n```\n";
+
         if (eventLogFile.existsAsFile())
             t << "\nEvent log: " << eventLogFile.getFileName() << "\n";
 
@@ -655,6 +757,13 @@ private:
         MainComponent& owner;
     };
 
+    struct MouseTimer final : juce::Timer
+    {
+        explicit MouseTimer (MainComponent& o) : owner (o) {}
+        void timerCallback() override { owner.watchMouse(); }
+        MainComponent& owner;
+    };
+
     te::Engine engine;
     juce::String member;
     std::unique_ptr<PluginSession> session;
@@ -662,8 +771,10 @@ private:
     int connections = 0;
 
     juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, automationButton,
-                     reportButton, peaksButton;
-    juce::ToggleButton muteButton, logButton;
+                     reportButton, peaksButton, sendStateButton, readStateButton;
+    juce::ToggleButton muteButton, logButton, stateButton;
+    juce::ComboBox detectBox;
+    bool pressedInWindow = false;
     juce::TextEditor portEditor, addressEditor, filterEditor, statsView, logView;
     juce::ComboBox throttleBox, echoBox;
     juce::Label statusLabel;
@@ -680,6 +791,7 @@ private:
 
     Rates rates;
     SweepTimer sweepTimer { *this };
+    MouseTimer mouseTimer { *this };
     juce::String sweepId;
     int sweepStep = 0;
     float sweepFrom = 0.0f, sweepTo = 0.0f;
@@ -696,6 +808,13 @@ public:
     void initialise (const juce::String&) override
     {
         const auto args = getCommandLineParameterArray();
+
+        if (args.contains ("--probe-state"))
+        {
+            setApplicationReturnValue (spike::runStateProbe (args));
+            quit();
+            return;
+        }
 
         if (args.contains ("--self-test-state"))
         {

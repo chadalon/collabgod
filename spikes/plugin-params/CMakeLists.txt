@@ -135,6 +135,7 @@ target_sources(plugin_params_spike PRIVATE
     src/host/StateHost.h
     src/host/Wire.cpp
     src/host/Wire.h
+    src/probe/StateProbe.cpp
     src/selftest/Harness.h
     src/selftest/SelfTest.cpp
     src/selftest/SelfTest.h
@@ -184,3 +185,12 @@ add_test(NAME state_between_members
         --v2 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v2_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
         --log-dir ${CMAKE_BINARY_DIR}/selftest-state)
 set_tests_properties(state_between_members PROPERTIES TIMEOUT 300)
+
+# The probe that measures real plugins, run on both versions of the test VST3,
+# each in its own process as it runs on a folder of real plugins.
+add_test(NAME state_probe
+    COMMAND plugin_params_spike
+        --probe-state "$<TARGET_FILE_DIR:test_synth_v1>/.."
+        --out ${CMAKE_BINARY_DIR}/selftest-state/probe.md --try-bad-state)
+set_tests_properties(state_probe PROPERTIES TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "CollabGod Test Synth \\(CollabGod\\) \\| 1\\.0\\.0.*Report written")
