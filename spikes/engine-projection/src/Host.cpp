@@ -416,8 +416,12 @@ int Host::getXRuns() const
 {
     if (audioInfo.simulated)
         return -1;
-    if (auto* device = engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
-        return device->getXRunCount();
+    // The manager's count is the device's own (where it has one) plus the callbacks JUCE
+    // timed as longer than their block. CoreAudio has no counter of its own, so without
+    // the second part a late callback on a Mac was invisible to the check.
+    auto& manager = engine->getDeviceManager().deviceManager;
+    if (manager.getCurrentAudioDevice() != nullptr)
+        return manager.getXRunCount();
     return -1;
 }
 
