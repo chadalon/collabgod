@@ -71,9 +71,9 @@ std::optional<Apply> ParamSync::localValue (const std::string& name, float value
 
     if (! p.heldHere && ! p.recent.empty())
     {
-        for (const auto& r : p.recent)
+        for (auto r = p.recent.begin(); r != p.recent.end(); ++r)
         {
-            if (std::abs (value - r.value) <= opts.epsilon)
+            if (std::abs (value - r->value) <= opts.epsilon)
             {
                 if (std::abs (value - p.value) <= opts.epsilon)
                 {
@@ -82,7 +82,10 @@ std::optional<Apply> ParamSync::localValue (const std::string& name, float value
                 }
 
                 // A late echo of an older value. The plugin may now hold it, so set the newest again.
+                // An older value a state load put there is expected once: after that, it is a person.
                 ++counters.echoesStale;
+                if (r->once)
+                    p.recent.erase (r);
                 return Apply { name, p.value };
             }
         }
@@ -227,7 +230,7 @@ void ParamSync::dropOlderPending (Param& p, const Stamp& newer, float newValue, 
     p.pendingCarriesValue = false;
 }
 
-void ParamSync::rememberApplied (Param& p, float value, double nowMs, double windowMs)
+void ParamSync::rememberApplied (Param& p, float value, double nowMs, double windowMs, bool once)
 {
     if (opts.echoWindowMs <= 0.0)
         return;
@@ -235,7 +238,7 @@ void ParamSync::rememberApplied (Param& p, float value, double nowMs, double win
     std::erase_if (p.recent, [nowMs] (const Param::Recent& r) { return r.untilMs < nowMs; });
     if (p.recent.size() >= maxRecent)
         p.recent.erase (p.recent.begin());
-    p.recent.push_back ({ value, nowMs + std::max (opts.echoWindowMs, windowMs) });
+    p.recent.push_back ({ value, nowMs + std::max (opts.echoWindowMs, windowMs), once });
 }
 
 void ParamSync::observe (const Stamp& s)
@@ -293,7 +296,7 @@ ParamSync::Adopted ParamSync::adoptState (const Snapshot& sent, const Stamp& sta
             // newest is set again.
             if (std::abs (value - p.value) > opts.epsilon)
             {
-                rememberApplied (p, value, nowMs, stateEchoWindowMs);
+                rememberApplied (p, value, nowMs, stateEchoWindowMs, true);
                 rememberApplied (p, p.value, nowMs, stateEchoWindowMs);
                 out.apply.push_back ({ name, p.value });
             }

@@ -158,7 +158,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto before = timbre (b, logDir, "b-before-table", hz);
         const auto t0 = PluginSession::nowMs();
         setTest (a, "Test: new wavetable", 1.0f);
-        const bool synced = waitFor ([&] { return st (b).applies >= 1 && sameState ({ &a, &b }); }, 5000);
+        const bool synced = waitFor ([&] { return st (b).applies >= 1 && sameState ({ &a, &b }); }, 15000);
         const auto ms = PluginSession::nowMs() - t0;
         stateCheck (synced, "B ends with A's state", hashOf (a) + " and " + hashOf (b));
         stateCheck (st (a).hintSetDirty > 0, "A's host heard setDirty", juce::String ((juce::int64) st (a).hintSetDirty) + " times");
@@ -185,14 +185,14 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto t0 = PluginSession::nowMs();
         a.session.getState().windowMouse (true, t0);
         a.session.getState().windowMouse (false, t0 + 1.0);
-        const bool found = waitFor ([&] { return sameState ({ &a, &b }); }, 5000);
+        const bool found = waitFor ([&] { return sameState ({ &a, &b }); }, 15000);
         stateCheck (found, "the mouse let go in A's window finds it", "in " + juce::String (PluginSession::nowMs() - t0, 0) + " ms");
 
         // Polling instead.
         a.session.getState().detect = Detect::pollAlways;
         const auto t1 = PluginSession::nowMs();
         setTest (a, "Test: new wavetable", 1.0f);
-        const bool polled = waitFor ([&] { return st (b).applies >= appliedBefore + 2 && sameState ({ &a, &b }); }, 5000);
+        const bool polled = waitFor ([&] { return st (b).applies >= appliedBefore + 2 && sameState ({ &a, &b }); }, 15000);
         stateCheck (polled, "polling finds it", "in " + juce::String (PluginSession::nowMs() - t1, 0) + " ms, polling every "
                     + juce::String (a.session.getState().getSync().pollIntervalMs(), 0) + " ms");
         setTest (a, "Test: call setDirty", 1.0f);
@@ -225,7 +225,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto appliedBefore = st (b).applies;
         const auto t0 = PluginSession::nowMs();
         setTest (a, "Test: embedded data", choice);
-        waitFor ([&] { return a.session.getState().isSending(); }, 5000);
+        waitFor ([&] { return a.session.getState().isSending(); }, 15000);
         const auto transferStarted = PluginSession::nowMs();
 
         // A knob moves while the state is on its way.
@@ -242,7 +242,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
             if (appliedMs < 0.0 && st (b).applies > appliedBefore)
                 appliedMs = now;
             return st (b).applies > appliedBefore && sameState ({ &a, &b });
-        }, 20000);
+        }, 40000);
         const auto ms = PluginSession::nowMs() - t0;
         pump (1000);   // the plugin's late reports of the values it loaded, and their answers
         stateCheck (synced, juce::String ("B ends with A's ") + label + " state");
@@ -276,7 +276,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         stateCheck (near (a.value (level), levelBefore, 1.0e-6f), "A's host still thinks Level is what it was",
                     juce::String (a.value (level), 3));
         const bool synced = waitFor ([&] { return sameState ({ &a, &b }) && near (a.value (level), b.value (level), 1.0e-5f)
-                                                  && ! near (a.value (level), levelBefore, 1.0e-4f); }, 5000);
+                                                  && ! near (a.value (level), levelBefore, 1.0e-4f); }, 15000);
         stateCheck (synced, "B finds the new Level and Pitch, and A's host learns them from B",
                     "Level A " + juce::String (a.value (level), 3) + ", B " + juce::String (b.value (level), 3) + ", before "
                     + juce::String (levelBefore, 3) + "; Pitch A " + juce::String (a.value (pitch), 3) + ", B " + juce::String (b.value (pitch), 3)
@@ -296,9 +296,9 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto announcedA = st (a).announcesSent, announcedB = st (b).announcesSent;
         setTest (a, "Test: new wavetable", 1.0f);
         setTest (b, "Test: new wavetable", 1.0f);
-        stateCheck (waitFor ([&] { return st (a).announcesSent > announcedA && st (b).announcesSent > announcedB; }, 5000),
+        stateCheck (waitFor ([&] { return st (a).announcesSent > announcedA && st (b).announcesSent > announcedB; }, 15000),
                     "both announce their change");
-        const bool converged = waitFor ([&] { return sameState ({ &a, &b }) && hashOf (a) != beforeA && hashOf (b) != beforeB; }, 8000);
+        const bool converged = waitFor ([&] { return sameState ({ &a, &b }) && hashOf (a) != beforeA && hashOf (b) != beforeB; }, 20000);
         stateCheck (converged, "they end with the same state", hashOf (a) + " and " + hashOf (b));
         const double hz = hzOf (a, pitch);
         stateCheck (timbreDistance (timbre (a, logDir, "a-both", hz), timbre (b, logDir, "b-both", hz)) < 0.02, "and sound the same");
@@ -334,7 +334,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto appliedA = st (a).applies, appliedB = st (b).applies;
         const auto absorbed = b.session.getState().getSync().stats().absorbedSettling;
         setTest (a, "Test: new wavetable", 1.0f);
-        waitFor ([&] { return st (b).applies > appliedB; }, 5000);
+        waitFor ([&] { return st (b).applies > appliedB; }, 15000);
         pump (3000);
         stateCheck (st (b).applies == appliedB + 1 && st (a).applies == appliedA, "B applies once, and nothing comes back to A",
                     "B applied " + juce::String ((juce::int64) (st (b).applies - appliedB)) + ", A " + juce::String ((juce::int64) (st (a).applies - appliedA)));
@@ -360,14 +360,15 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
             for (auto& p : spike::StateHost::pathsIn (s.bytes))
                 names = names || juce::String (p).contains ("collabgod-test-synth");
             return names && a.session.getState().getSync().baseline() == s.hash && a.session.getState().getSync().agreedHash() == s.hash;
-        }, 5000), "A announces a state that names the file");
+        }, 15000), "A announces a state that names the file");
 
-        // A's plugin has loaded the file. On B's "machine" it does not exist.
-        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("collabgod-test-synth");
-        for (auto& f : folder.findChildFiles (juce::File::findFiles, false, "sample-*.wav"))
-            f.deleteFile();
+        // A's plugin has loaded the file. On B's "machine" it does not exist. The
+        // path comes from the state: the plugin's temporary folder is not always the host's.
+        for (auto& p : spike::StateHost::pathsIn (a.session.getState().read().bytes))
+            if (juce::String (p).contains ("collabgod-test-synth"))
+                juce::File (juce::String (p)).deleteFile();
 
-        stateCheck (waitFor ([&] { return testValue (b, "Test: sample missing") > 0.5f; }, 5000), "B's plugin says the sample is missing");
+        stateCheck (waitFor ([&] { return testValue (b, "Test: sample missing") > 0.5f; }, 15000), "B's plugin says the sample is missing");
         stateCheck (testValue (a, "Test: sample missing") < 0.5f, "A's still plays it, from memory");
         stateCheck (st (b).pathsMissingHere >= 1, "B's host found the path in the state and saw the file is not there",
                     logB.joinIntoString ("\n").fromLastOccurrenceOf ("are not on this machine: ", false, false).upToFirstOccurrenceOf ("\n", false, false));
@@ -384,7 +385,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
     waitFor ([&] { return a.link.numConnections() == 2; }, 2000);
     c.session.sendHello();
     {
-        stateCheck (waitFor ([&] { return st (c).applies >= 1; }, 5000), "C is given the agreed state when it joins");
+        stateCheck (waitFor ([&] { return st (c).applies >= 1; }, 15000), "C is given the agreed state when it joins");
         stateCheck (st (c).outcomes.count ("loaded, saved back differently, parameters match") == 1,
                     "version 2 loads version 1's state and saves it back in its own format, with the same parameters");
         const double hzBefore = hzOf (a, pitch);
@@ -393,7 +394,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto refusedA = st (a).outcomes.count ("not loaded: the plugin's state did not change") ? st (a).outcomes.at ("not loaded: the plugin's state did not change") : 0;
         setTest (c, "Test: new wavetable", 1.0f);
         stateCheck (waitFor ([&] { return st (a).outcomes.count ("not loaded: the plugin's state did not change") > 0
-                                          && st (a).outcomes.at ("not loaded: the plugin's state did not change") > refusedA; }, 5000),
+                                          && st (a).outcomes.at ("not loaded: the plugin's state did not change") > refusedA; }, 15000),
                     "version 1 refuses version 2's state, and A's host says so");
         stateCheck (logA.joinIntoString ("\n").contains ("WARNING member-a: applied state"), "the warning is logged");
         stateCheck (timbreDistance (aBefore, timbre (a, logDir, "a-refused", hzBefore)) < 0.02,

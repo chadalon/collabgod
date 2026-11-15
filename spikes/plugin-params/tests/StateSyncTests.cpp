@@ -346,9 +346,14 @@ void ruleTests()
         CHECK (b.params.flush (300.0).empty());
 
         // The plugin reports the value it loaded, late: an echo, and the newest is set again.
-        auto late = b.params.localValue ("cutoff", 0.4f, 700.0);
+        auto late = b.params.localValue ("cutoff", 0.4f, 12000.0);
         CHECK (late && std::abs (late->value - 0.8f) < 1e-6f);
-        CHECK (b.params.flush (800.0).empty());
+        CHECK (b.params.flush (12100.0).empty());
+
+        // Only once: the same value again is a person setting it.
+        CHECK (! b.params.localValue ("cutoff", 0.4f, 13000.0));
+        auto again2 = b.params.flush (13100.0);
+        CHECK (again2.size() == 1 && std::abs (again2[0].value - 0.4f) < 1e-6f);
     });
 
     test ("an untouched state loses to any edited one, and two untouched ones agree by member id", [] {

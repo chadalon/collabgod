@@ -203,7 +203,7 @@ private:
         std::optional<Change> pending;   // waiting for the next flush
         bool pendingCarriesValue = false; // pending holds a local value change, not only a gesture flag
         double lastSentMs = -1.0e12;
-        struct Recent { float value; double untilMs; };
+        struct Recent { float value; double untilMs; bool once = false; };
         std::vector<Recent> recent;      // remote values applied here within the echo window, oldest first
         bool pluginDiffers = false;      // a local change was dropped, so the plugin may not hold `value`
         float pluginValue = 0.0f;        // what it holds instead, when pluginDiffers
@@ -211,12 +211,13 @@ private:
 
     static constexpr std::size_t maxRecent = 32;
     /** After a state is applied, a plugin may report the values it loaded much later than it echoes one
-        value: seconds, if loading kept the message thread busy. A person setting a control to exactly its
-        previous value within this time is the only thing it mistakes for an echo. */
-    static constexpr double stateEchoWindowMs = 5000.0;
+        value: over ten seconds on a slow machine busy loading a large state. The first such report within
+        this time is an echo; a person setting a control to exactly its old value is the only thing it
+        mistakes for one, and only once. */
+    static constexpr double stateEchoWindowMs = 30000.0;
 
     void receiveValue (Param&, const Change&, double nowMs, std::vector<Apply>&);
-    void rememberApplied (Param&, float value, double nowMs, double windowMs = 0.0);
+    void rememberApplied (Param&, float value, double nowMs, double windowMs = 0.0, bool once = false);
     static void dropOlderPending (Param&, const Stamp&, float newValue, Stats&);
 
     Stamp nextStamp();
