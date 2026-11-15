@@ -350,7 +350,11 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         setTest (b, "Test: settle late", 1.0f);
         b.session.getState().detect = Detect::pollAlways;
         a.session.getState().detect = Detect::pollAlways;
-        pump (300);
+
+        // Let what the last step changed on B (its state is no longer noisy) be announced and settle first.
+        waitFor ([&] { return ! a.session.getState().getSync().hasLocalChange() && ! b.session.getState().getSync().hasLocalChange()
+                              && sameState ({ &a, &b }); }, 15000);
+        pump (1000);
         const auto appliedA = st (a).applies, appliedB = st (b).applies;
         const auto absorbed = b.session.getState().getSync().stats().absorbedSettling;
         setTest (a, "Test: new wavetable", 1.0f);
