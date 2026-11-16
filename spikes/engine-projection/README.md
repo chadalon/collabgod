@@ -176,17 +176,37 @@ On Windows, neither happened (findings 4, 6 and 12): no dropouts, and a rebuild 
 
 On the Mac (finding 13) the condition above was met in part: with other apps open on a 4-core machine, edits during playback caused late audio callbacks with `WaveNodeRealTime` and Tracktion's default thread pool, and none with one audio thread. The recommendation stands, because it points at Tracktion's threading and not at the projection or the fallback, and it comes with a setting that cleared it. It adds a requirement: the app needs a thread count it can set and a count of late callbacks in its own diagnostics, because on a Mac the click detector and the device cannot report them. The unexplained one-second graph rebuild that goes with the thread pool needs a cause before the default is trusted on any machine.
 
-## What is left (needs Chad's machines)
+## Done, and what it hands on
 
-The time box is spent on what a cloud machine can show. These need the real devices, and the issue stays open until they are done:
+The spike is finished. Every check on the maintainers' machines was run, and the results are on #11 with the JSON reports attached:
 
 - [x] Windows: build, `ctest`, and `npm test` with `ENGINE_PROJECTION_BIN` set.
 - [x] Windows: `npm run dropout-check`, listening on headphones. Then again with `--tracktion-wave-nodes`, to hear and count the difference. Then with `--samples` pointing at a folder of real samples (finding 12).
 - [x] Windows: `engine_projection bench`, for the cost table on a real CPU (finding 6).
 - [x] Windows: plug a MIDI controller in during the edits phase once (finding 10).
 - [x] Mac: `ctest` (passes), `npm test` with the binary (29 of 29), `bench` (finding 13's rebuild costs: 3.6 ms at 100 clips, 14 ms at 1,000, 69 ms at 5,000) and the dropout check with different thread counts (finding 13). `--tracktion-wave-nodes`, `--samples` and a MIDI controller during the edits were also run (finding 13).
-- [ ] Find the cause of the one-second graph rebuild with a thread pool (finding 13).
-- [ ] Post the dropout check's summary tables and the bench tables on #11, and attach the JSON reports.
+- [x] Post the dropout check's summary tables and the bench tables on #11, and attach the JSON reports.
+
+### What the product must do
+
+Requirements this spike found. The first two belong to #27 (audio device selection and output); the rest to whoever builds the engine side in Phase 1.
+
+1. **Make the number of audio threads a setting the app controls**, with a safe default on small machines. Tracktion's default (every CPU) dropped out on a 4-core Mac during edits; one thread did not (finding 13). One thread is not shown to be enough: these sessions had no plugins and used 5 to 11% of the block.
+2. **Count late audio callbacks in the app's own diagnostics.** On macOS neither the device nor a check of the generated audio can see them (finding 13). The spike uses JUCE's `AudioDeviceManager::getXRunCount`: the device's own count where it has one, plus the callbacks JUCE times as longer than their block (`Host::getXRuns`).
+3. **Play clips with proxies off (`WaveNodeRealTime`)**, or anything else that never waits on the file cache on the audio thread (finding 4). Compressed and stretched clips without proxies are untested.
+4. **Send edits to the engine at most once per display frame, in one batch.** Every batch rebuilds the whole playback graph on the message thread (finding 6).
+5. **Write clip positions in absolute terms** (`setPosition`), never through Tracktion's `setStart` or `setLength` (finding 3).
+6. **Verify the engine against the projection on a timer and after every reconnect.** A command lost without an error is only found by a readback (finding 2).
+7. **Fade a clip that an edit cuts while it sounds** (finding 8), and give the mix headroom (finding 11).
+
+### Open question: the one-second graph rebuild
+
+On the Mac, every run with a thread pool had one graph rebuild of about 1.02 to 1.05 s, and no run without one had any (finding 13). Its cause is not found, and the thread pool should not be trusted as a default on small machines until it is. Where to start, cheapest first. None of these has been tried:
+
+1. **Time the hand-over of a new graph.** When a new graph replaces the old one, `LockFreeMultiThreadedNodePlayer::postNewGraph` (in `tracktion_graph`) calls `ThreadPool::waitForThreadsToQuiesce`, which runs on the message thread and spins with `std::this_thread::yield()`, with no time limit, until no worker is inside a block. A worker that the operating system has not run would hold it there. This fits "only with a pool", but nothing in it explains a fixed second, so it is a lead, not a cause. Timing that call, and `EditPlaybackContext::createNode` around it, in a patched copy of Tracktion (as `engine-toolchain` already patches it for Apple clang) would show whether the second is spent there.
+2. **Try the other thread pool strategies.** Tracktion has six ways for its workers to wait (`tracktion::graph::ThreadPoolStrategy`), chosen for the whole process with the static `EditPlaybackContext::setThreadPoolStrategy`. Its default, `lightweightSemHybrid`, spins and yields before it sleeps, which costs most on a machine with no spare cores. Only the default has been tested. The others are `conditionVariable`, `realTime`, `hybrid`, `semaphore` and `lightweightSemaphore`. A `--pool-strategy` option on `serve` and five Mac runs each would show whether any is clean with more than one thread.
+3. **Compare with Tracktion's own DAW.** Waveform Free on the same Mac, editing clips while it plays. If it drops out too, it is Tracktion and worth reporting upstream with these numbers; if not, compare its settings.
+4. **Test one thread under plugin load**, with other audio apps running, on the Mac. This decides whether one thread is a usable default or only a fallback.
 
 ## Not covered
 
