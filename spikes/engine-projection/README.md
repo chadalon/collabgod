@@ -199,7 +199,7 @@ Requirements this spike found. The first two belong to #27 (audio device selecti
 6. **Verify the engine against the projection on a timer and after every reconnect.** A command lost without an error is only found by a readback (finding 2).
 7. **Fade a clip that an edit cuts while it sounds** (finding 8), and give the mix headroom (finding 11).
 
-### Open question: the one-second graph rebuild
+### Open question: the one-second graph rebuild (#113)
 
 On the Mac, every run with a thread pool had one graph rebuild of about 1.02 to 1.05 s, and no run without one had any (finding 13). Its cause is not found, and the thread pool should not be trusted as a default on small machines until it is. Where to start, cheapest first. None of these has been tried:
 
