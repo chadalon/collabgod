@@ -1,0 +1,12 @@
+{
+  "description": "A command that cannot be carried out stops the batch; what came before it stays",
+  "commands": [
+    { "op": "track.add", "id": "t1", "after": null },
+    { "op": "clip.add", "id": "a", "trackId": "t9", "start": 0, "length": 1, "sampleHash": "hash-a", "file": "${samples}/a.wav" },
+    { "op": "track.add", "id": "t2", "after": "t1" }
+  ],
+  "failedAt": 1,
+  "readback": {
+    "tracks": [ { "id": "t1", "clips": [] } ]
+  }
+}

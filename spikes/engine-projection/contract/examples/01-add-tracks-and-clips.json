@@ -1,0 +1,15 @@
+{
+  "description": "Two tracks after the probe, one clip on each",
+  "commands": [
+    { "op": "track.add", "id": "t1", "after": null },
+    { "op": "track.add", "id": "t2", "after": "t1" },
+    { "op": "clip.add", "id": "a", "trackId": "t1", "start": 1, "length": 1, "sampleHash": "hash-a", "file": "${samples}/a.wav" },
+    { "op": "clip.add", "id": "b", "trackId": "t2", "start": 2, "length": 0.5, "sampleHash": "hash-b", "file": "${samples}/b.wav" }
+  ],
+  "readback": {
+    "tracks": [
+      { "id": "t1", "clips": [ { "id": "a", "start": 1, "length": 1, "offset": 0, "sampleHash": "hash-a", "file": "${samples}/a.wav" } ] },
+      { "id": "t2", "clips": [ { "id": "b", "start": 2, "length": 0.5, "offset": 0, "sampleHash": "hash-b", "file": "${samples}/b.wav" } ] }
+    ]
+  }
+}
