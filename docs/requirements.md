@@ -1,6 +1,6 @@
-# Requirements (v0.6)
+# Requirements (v0.7)
 
-Sixty-seven requirements across nine areas. Issues refer to these IDs.
+Sixty-nine requirements across nine areas. Issues refer to these IDs.
 
 Priority:
 
@@ -88,6 +88,8 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | SMP-5 | Transfer progress is drawn on the clip itself. | Must |
 | SMP-6 | Transferred files are stored with the project, not mixed into the user's library. | Should |
 | SMP-7 | Near matches, such as the same audio in another format, are offered as suggestions and never applied silently. | Should |
+| SMP-8 | Each person can see what a project has received and sent: which files and plugin states, their sizes, and the total. | Should |
+| SMP-9 | A transfer never fills the disk. The app checks free space before receiving, pauses a transfer that would not fit, and tells the receiver why and the sender that it is waiting. | Must |
 
 ## DAW core
 
