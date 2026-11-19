@@ -189,7 +189,7 @@ Provisional until the probe has run on the Mac and the checklist on real plugins
 
 - Plugin formats other than VST3 (ADR-0010).
 - Sending files a state names. Only detected.
-- **Omnisphere, and plugins that play from a large sample library on disk.** Not tested; to come back to. They are where a file one machine lacks matters most (finding 8). The Windows machine has Omnisphere only as VST2, AAX and standalone, which the spike cannot host, and the Mac has none. To start: install its VST3 (the Spectrasonics installer or updater), run `--probe-state` on `Omnisphere.vst3`, then the checklist's file test with a patch whose samples only one machine has.
+- **Omnisphere, and plugins that play from a large sample library on disk.** Not tested; to come back to in #117, which also covers sending the files a state names. They are where a file one machine lacks matters most (finding 8). The Windows machine has Omnisphere only as VST2, AAX and standalone, which the spike cannot host, and the Mac has none. To start: install its VST3 (the Spectrasonics installer or updater), run `--probe-state` on `Omnisphere.vst3`, then the checklist's file test with a patch whose samples only one machine has.
 - The relay: the spike uses its own TCP link, with JSON and base64 where the product would use binary frames.
 - Undo of a state change, and saving states in the session file (they would be operations, ADR-0004).
 - Crashes on load (PLG-8), and loading out of process.
