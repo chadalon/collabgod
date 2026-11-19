@@ -77,7 +77,7 @@ On one machine both copies play through the same output. Tick **Mute this one** 
 
 ### 2. For each plugin
 
-Load the same `.vst3` in both copies with **Load VST3...** (on macOS, choose the `.vst3` bundle). An instrument gets a held chord; an effect gets a tone in front of it. Press **Play**, then **Plugin window** in both.
+Load the same plugin in both copies with **Load VST3...**, which lists the plugins in the standard VST3 folders; **Other file...** in that menu opens a file dialog for the rest (on macOS, choose the `.vst3` bundle; on Windows, the dialog cannot pick a bundle folder: a bundle outside the standard folders may load from the `.vst3` file inside its `Contents` folder, not yet tried). An instrument gets a held chord; an effect gets a tone in front of it. Press **Play**, then **Plugin window** in both.
 
 Check each of these and note what happened:
 

@@ -92,7 +92,7 @@ What each column answers:
 
 ### 2. Two copies, by hand (40 minutes)
 
-Start two copies as in [`README.md`](README.md#1-start-two-copies), on one machine or two, load the same plugin in both, connect, and leave **Sync state** on with **Hints, and poll while the window is open**. Open the plugin window in both. For Serum 2, then one other synth and one effect:
+Start two copies as in [`README.md`](README.md#1-start-two-copies), on one machine or two, load the same plugin in both, press **Play** in both (until then the plugin is not processing: Serum 2 says "DAW suspended processing"), connect, and leave **Sync state** on with **Hints, and poll while the window is open**. Open the plugin window in both. For Serum 2, then one other synth and one effect:
 
 - [ ] **Preset.** Load a factory preset in one copy. The other shows it (same name, same sound) within about a second. Note the time, and `last transfer` in the counters.
 - [ ] **LFO shape.** Drag an LFO point in Serum. Let go. The other copy's LFO follows. Note which hint found it: `hints: unchanged parameter reports`, `hints: setDirty` or `hints: mouse let go in the window`.
@@ -189,6 +189,7 @@ Provisional until the probe has run on the Mac and the checklist on real plugins
 
 - Plugin formats other than VST3 (ADR-0010).
 - Sending files a state names. Only detected.
+- **Omnisphere, and plugins that play from a large sample library on disk.** Not tested; to come back to. They are where a file one machine lacks matters most (finding 8). The Windows machine has Omnisphere only as VST2, AAX and standalone, which the spike cannot host, and the Mac has none. To start: install its VST3 (the Spectrasonics installer or updater), run `--probe-state` on `Omnisphere.vst3`, then the checklist's file test with a patch whose samples only one machine has.
 - The relay: the spike uses its own TCP link, with JSON and base64 where the product would use binary frames.
 - Undo of a state change, and saving states in the session file (they would be operations, ADR-0004).
 - Crashes on load (PLG-8), and loading out of process.

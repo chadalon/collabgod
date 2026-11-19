@@ -13,4 +13,6 @@ int runSelfTest (const juce::StringArray& args);
 int runStateSelfTest (const juce::StringArray& args);
 /** Measures real plugins' saved state (#13, src/probe/StateProbe.cpp). Returns the exit code. */
 int runStateProbe (const juce::StringArray& args);
+/** Every .vst3 under a folder, files and bundles, without looking inside bundles (src/probe/StateProbe.cpp). */
+juce::Array<juce::File> findPlugins (const juce::File& folder);
 }

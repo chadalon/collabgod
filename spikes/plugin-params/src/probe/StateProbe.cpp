@@ -197,7 +197,10 @@ juce::String probeOne (const juce::File& file, bool tryBad)
     soundCard.stopThread (2000);
     return row;
 }
+} // namespace
 
+namespace spike
+{
 juce::Array<juce::File> findPlugins (const juce::File& folder)
 {
     juce::Array<juce::File> found;
@@ -218,10 +221,7 @@ juce::Array<juce::File> findPlugins (const juce::File& folder)
     walk (folder, 0);
     return found;
 }
-} // namespace
 
-namespace spike
-{
 int runStateProbe (const juce::StringArray& args)
 {
     juce::File target, out = defaultReport(), childOut;

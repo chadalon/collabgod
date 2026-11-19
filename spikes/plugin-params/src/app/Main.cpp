@@ -10,6 +10,9 @@
 
 #include <JuceHeader.h>
 
+#include <algorithm>
+#include <numeric>
+
 #include "../host/Link.h"
 #include "../host/PluginSession.h"
 #include "../selftest/SelfTest.h"
@@ -286,15 +289,64 @@ private:
         logView.moveCaretToEnd();
     }
 
+    // A menu of the plugins in the standard VST3 folders, and "Other file..." for
+    // the rest, starting in the last folder used or the first standard one.
     void choosePlugin()
     {
-        chooser = std::make_unique<juce::FileChooser> ("Choose a VST3 plugin", juce::File(), "*.vst3");
-        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
-                                  | juce::FileBrowserComponent::canSelectDirectories,
-                              [this] (const juce::FileChooser& fc)
+        const auto folders = juce::VST3PluginFormat().getDefaultLocationsToSearch();
+        juce::Array<juce::File> plugins;
+        juce::StringArray names;
+
+        for (int i = 0; i < folders.getNumPaths(); ++i)
+            for (const auto& f : spike::findPlugins (folders[i]))
+            {
+                plugins.add (f);
+                names.add (f.getRelativePathFrom (folders[i]).upToLastOccurrenceOf (".vst3", false, true));
+            }
+
+        juce::PopupMenu menu;
+        menu.addItem (1, "Other file...");
+        menu.addSeparator();
+
+        std::vector<int> order ((size_t) names.size());
+        std::iota (order.begin(), order.end(), 0);
+        std::sort (order.begin(), order.end(), [&] (int a, int b) { return names[a].compareNatural (names[b]) < 0; });
+        for (const auto i : order)
+            menu.addItem (2 + i, names[i]);
+
+        if (plugins.isEmpty())
+            menu.addItem (-1, "No plugins in " + folders.toString(), false);
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (loadButton),
+                            [this, plugins, folders] (int result)
+                            {
+                                if (result >= 2)
+                                    loadPlugin (plugins[result - 2]);
+                                else if (result == 1)
+                                    browseForPlugin (lastPluginFolder.isDirectory() ? lastPluginFolder : folders[0]);
+                            });
+    }
+
+    void browseForPlugin (const juce::File& start)
+    {
+        // Windows' own dialog either picks files or picks folders, never both, and a
+        // .vst3 there may be either. Files only: a bundle in the standard folders is
+        // in the menu; elsewhere, the .vst3 file inside its Contents folder may load (not tried).
+       #if JUCE_WINDOWS
+        const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+       #else
+        const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::canSelectDirectories;
+       #endif
+
+        chooser = std::make_unique<juce::FileChooser> ("Choose a VST3 plugin", start, "*.vst3");
+        chooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& fc)
                               {
-                                  if (fc.getResult() != juce::File())
-                                      loadPlugin (fc.getResult());
+                                  const auto file = fc.getResult();
+                                  if (file == juce::File())
+                                      return;
+                                  lastPluginFolder = file.getParentDirectory();
+                                  loadPlugin (file);
                               });
     }
 
@@ -783,6 +835,7 @@ private:
     juce::StringArray logLines;
 
     std::unique_ptr<juce::FileChooser> chooser;
+    juce::File lastPluginFolder;
     std::unique_ptr<PluginWindow> pluginWindow;
     juce::File eventLogFile;
 
