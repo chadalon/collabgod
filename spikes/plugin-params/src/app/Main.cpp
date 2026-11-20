@@ -124,6 +124,10 @@ public:
         addButton (reportButton, "Save report", [this] { saveReport(); });
         addButton (peaksButton, "Reset peaks", [this] { rates.resetPeaks(); });
         addButton (markButton, "Mark counters", [this] { markCounters(); });
+        addButton (stepButton, "Log step", [this] { logStep(); });
+        changedButton.setButtonText ("Changed only");
+        changedButton.onClick = [this] { setTextKeepingScroll (statsView, shownStats()); };
+        addAndMakeVisible (changedButton);
         addButton (sendStateButton, "Send state now", [this] { session->getState().sendNow (PluginSession::nowMs()); });
         addButton (readStateButton, "Read state now", [this] { session->getState().checkNow (PluginSession::nowMs()); });
 
@@ -262,7 +266,12 @@ public:
         peaksButton.setBounds (bottomButtons.removeFromLeft (110));
         bottomButtons.removeFromLeft (6);
         markButton.setBounds (bottomButtons.removeFromLeft (120));
-        statsFilter.setBounds (r.removeFromTop (26));
+        bottomButtons.removeFromLeft (6);
+        stepButton.setBounds (bottomButtons.removeFromLeft (90));
+        auto filterRow = r.removeFromTop (26);
+        changedButton.setBounds (filterRow.removeFromRight (120));
+        filterRow.removeFromRight (6);
+        statsFilter.setBounds (filterRow);
         r.removeFromTop (4);
         statsView.setBounds (r.removeFromTop (r.getHeight() * 3 / 5));
         r.removeFromTop (4);
@@ -290,6 +299,7 @@ private:
     void addLog (const juce::String& s)
     {
         logLines.add (juce::Time::getCurrentTime().toString (false, true, true, true) + "  " + s);
+        ++logLinesAdded;
         while (logLines.size() > 300)
             logLines.remove (0);
         logView.setText (logLines.joinIntoString ("\n"), false);
@@ -697,6 +707,16 @@ private:
         return (d == 0 ? juce::String() : (d > 0 ? "+" : "") + juce::String (d)).paddedRight (' ', 8);
     }
 
+    // One counter's line; one that changed since the mark is also kept in changedLines.
+    juce::String counterLine (const juce::String& name, std::uint64_t v) const
+    {
+        const auto d = sinceMark (name, v);
+        const auto l = name.paddedRight (' ', 38) + d + juce::String ((juce::int64) v);
+        if (d.isNotEmpty())
+            changedLines.add (l);
+        return l;
+    }
+
     juce::String markColumnTitle() const
     {
         return markTime.isEmpty() ? juce::String() : juce::String ("since " + markTime).paddedRight (' ', 8) + "\n";
@@ -706,29 +726,88 @@ private:
     {
         markBase.clear();
         markTime = juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+        markLogLines = logLinesAdded;
         capturingMark = true;
         statsText();
         capturingMark = false;
     }
 
-    // The counters as shown: only the lines containing the filter's text, if any.
+    // Appends what changed since the last mark (counters with their change, the state lines
+    // and the log lines since) to a steps file in the report folder, then marks again. Pressed
+    // after each step of the checklist, in every copy, it leaves one file per copy to read.
+    void logStep()
+    {
+        if (session->getPlugin() == nullptr)
+            return;
+
+        const auto now = juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+        juce::String t;
+        if (markTime.isEmpty())
+        {
+            t << "\n## " << now << " start\n";
+        }
+        else
+        {
+            ++stepNumber;
+            const auto text = statsText();
+            t << "\n## Step " << stepNumber << ", " << markTime << " to " << now << "\n\n```\n";
+            t << (changedLines.isEmpty() ? juce::String ("(no counter changed)\n") : changedLines.joinIntoString ("\n") + "\n");
+            for (const auto& l : juce::StringArray::fromLines (text))
+                if (l.startsWith ("STATE:") || l.startsWith ("last transfer") || l.startsWith ("size now") || l.startsWith ("applying"))
+                    t << l.trimEnd() << "\n";
+            t << "```\n";
+
+            const int fresh = (int) std::min<juce::int64> (logLinesAdded - markLogLines, logLines.size());
+            if (fresh > 0)
+            {
+                t << "\n```\n";
+                for (int i = logLines.size() - fresh; i < logLines.size(); ++i)
+                    t << logLines[i] << "\n";
+                t << "```\n";
+            }
+        }
+
+        const bool newFile = ! stepsFile.existsAsFile();
+        if (newFile)
+        {
+            reportFolder().createDirectory();
+            const auto& h = session->getHello();
+            stepsFile = reportFolder().getChildFile ("steps-" + juce::File::createLegalFileName (h.plugin.name) + "-" + member + "-"
+                                                     + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".md");
+            stepsFile.replaceWithText ("# " + h.plugin.name + " " + h.plugin.version + ", member " + member
+                                       + (connections > 0 ? "" : " (not connected)") + "\n");
+        }
+        stepsFile.appendText (t);
+        markCounters();
+        addLog ((stepNumber == 0 ? juce::String ("Counters marked.") : "Step " + juce::String (stepNumber) + " logged.")
+                + (newFile ? " Steps file: " + stepsFile.getFullPathName() : juce::String()));
+    }
+
+    // The counters as shown: only the lines containing the filter's text, if any, and with
+    // "Changed only", only the counters that changed since the mark.
     juce::String shownStats() const
     {
         const auto text = statsText();
         const auto filter = statsFilter.getText().trim();
-        if (filter.isEmpty())
+        const bool changedOnly = changedButton.getToggleState();
+        if (filter.isEmpty() && ! changedOnly)
             return text;
+        if (changedOnly && markTime.isEmpty())
+            return "Press Mark counters (or Log step) first: \"Changed only\" shows what changed since then.";
         juce::StringArray kept;
-        for (const auto& l : juce::StringArray::fromLines (text))
-            if (l.containsIgnoreCase (filter))
+        for (const auto& l : changedOnly ? changedLines : juce::StringArray::fromLines (text))
+            if (filter.isEmpty() || l.containsIgnoreCase (filter))
                 kept.add (l);
-        return kept.joinIntoString ("\n");
+        if (changedOnly && kept.isEmpty())
+            return "Nothing changed since " + markTime + ".";
+        return (changedOnly ? "Changed since " + markTime + ":\n\n" : juce::String()) + kept.joinIntoString ("\n");
     }
 
-    // Replaces a read-only editor's text without moving it back to the top.
+    // Replaces a read-only editor's text without moving it back to the top. Leaves it alone
+    // while some of it is selected, so it can be copied.
     static void setTextKeepingScroll (juce::TextEditor& e, const juce::String& text)
     {
-        if (e.getText() == text)
+        if (e.getText() == text || ! e.getHighlightedRegion().isEmpty())
             return;
         juce::Viewport* viewport = nullptr;
         for (auto* c : e.getChildren())
@@ -747,6 +826,7 @@ private:
         const auto& y = session->getSync().stats();
         juce::String t;
 
+        changedLines.clear();
         if (session->getPlugin() == nullptr)
             return "No plugin loaded.";
 
@@ -761,10 +841,7 @@ private:
             t << juce::String (r.name).paddedRight (' ', 22) << juce::String (r.now, 0).paddedLeft (' ', 8)
               << juce::String (r.peak, 0).paddedLeft (' ', 9) << "\n";
 
-        auto line = [this, &t] (const char* name, std::uint64_t v)
-        {
-            t << juce::String (name).paddedRight (' ', 38) << sinceMark (name, v) << (juce::int64) v << "\n";
-        };
+        auto line = [this, &t] (const char* name, std::uint64_t v) { t << counterLine (name, v) << "\n"; };
         t << "\n" << juce::String().paddedRight (' ', 38) << markColumnTitle();
         line ("plugin reports, total", s.rawValueEvents);
         line ("  of them off the message thread", s.rawValueEventsOffMessageThread);
@@ -803,10 +880,7 @@ private:
         juce::String t;
         const auto blank = juce::String().paddedRight (' ', markTime.isEmpty() ? 0 : 8);
         auto line = [&t, &blank] (const juce::String& name, const juce::String& v) { t << name.paddedRight (' ', 38) << blank << v << "\n"; };
-        auto count = [this, &t] (const juce::String& name, std::uint64_t v)
-        {
-            t << name.paddedRight (' ', 38) << sinceMark (name, v) << (juce::int64) v << "\n";
-        };
+        auto count = [this, &t] (const juce::String& name, std::uint64_t v) { t << counterLine (name, v) << "\n"; };
         auto kib = [] (std::uint64_t v) { return juce::String ((double) v / 1024.0, 1) + " KiB"; };
 
         t << "STATE: " << (state.enabled ? "synced" : "not synced") << ", " << detectBox.getText().toLowerCase()
@@ -909,6 +983,13 @@ private:
     mutable std::map<juce::String, std::uint64_t> markBase;
     mutable bool capturingMark = false;
     juce::String markTime;
+    // Counter lines that changed since the mark, filled by statsText().
+    mutable juce::StringArray changedLines;
+    juce::TextButton stepButton;
+    juce::ToggleButton changedButton;
+    juce::File stepsFile;
+    int stepNumber = 0;
+    juce::int64 logLinesAdded = 0, markLogLines = 0;
     juce::ComboBox throttleBox, echoBox;
     juce::Label statusLabel;
     juce::ListBox list;
