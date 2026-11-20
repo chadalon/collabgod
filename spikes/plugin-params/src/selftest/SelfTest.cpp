@@ -72,6 +72,30 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
     a.session.setEventLog (logDir.getChildFile ("events-a.csv"));
     b.session.setEventLog (logDir.getChildFile ("events-b.csv"));
 
+    {
+        // A value must arrive bit for bit, or the receiver's saved state differs from the
+        // sender's and a knob turn costs a state load (#13, finding 14).
+        spike::Batch out { "member-a", {} }, in;
+        juce::Random random (13);
+        for (int i = 0; i < 1000; ++i)
+        {
+            psync::Change c;
+            c.param = std::to_string (i);
+            const float awkward[] = { 0.1f, 1.0f / 3.0f, 1.0e-7f };
+            c.value = i < 3 ? awkward[i] : random.nextFloat();
+            c.stamp.member = "member-a";
+            c.stamp.counter = (std::uint64_t) i + 1;
+            out.changes.push_back (c);
+        }
+        spike::Hello h;
+        spike::StateMessage sm;
+        spike::decode (spike::encodeBatch (out), h, in, sm);
+        int exact = 0;
+        for (size_t i = 0; i < in.changes.size() && i < out.changes.size(); ++i)
+            exact += in.changes[i].value == out.changes[i].value ? 1 : 0;
+        check (exact == 1000, "parameter values arrive exactly", juce::String (exact) + " of 1000");
+    }
+
     juce::String error;
     check (a.session.loadPlugin (v1, error), "A loads the test synth version 1", error);
     check (b.session.loadPlugin (v1, error), "B loads the test synth version 1", error);

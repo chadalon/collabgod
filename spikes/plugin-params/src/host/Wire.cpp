@@ -3,6 +3,8 @@
 
 #include "Wire.h"
 
+#include <cstdio>
+
 namespace spike
 {
 
@@ -49,8 +51,13 @@ juce::String encodeBatch (const Batch& b)
         const auto& c = b.changes[i];
         if (i > 0)
             out << ",";
+        // Nine significant digits bring a float back exactly. Fewer (it was seven decimal
+        // places) left a turned knob a hair off on the receiver, so its saved state no
+        // longer hashed the same as the sender's and every knob turn loaded a state.
+        char value[32];
+        std::snprintf (value, sizeof (value), "%.9g", (double) c.value);
         out << "[" << juce::JSON::toString (juce::String (c.param)) << ","
-            << juce::String (c.value, 7) << ","
+            << value << ","
             << juce::String ((juce::int64) c.stamp.counter) << ","
             << juce::JSON::toString (juce::String (c.stamp.member)) << ","
             << (int) c.flags << "]";
