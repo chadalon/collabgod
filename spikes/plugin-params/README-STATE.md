@@ -8,12 +8,12 @@ It builds on the parameter spike in the same folder, because state and parameter
 
 | Done when | Status |
 | --- | --- |
-| A preset loaded in one instance appears in the other by sending the plugin's saved state | **Works with the test VST3** (a hidden wavetable, a preset that moves parameters silently, large embedded data), three members on this machine. **Works with Serum 2** on Windows: presets, LFO shapes, modulation and wavetables follow within a second, but Serum 2 is silent for about 4 s after every load (finding 12). **Works with FabFilter Pro-Q 3**: presets, bands and even the display range follow at once, with no gap (finding 13) |
+| A preset loaded in one instance appears in the other by sending the plugin's saved state | **Works with the test VST3** (a hidden wavetable, a preset that moves parameters silently, large embedded data), three members on this machine. **Works with Serum 2** on Windows: presets, LFO shapes, modulation and wavetables follow within a second, but Serum 2 is silent for about 4 s after every load (finding 12). **Works with FabFilter Pro-Q 3**: presets, bands and even the display range follow at once, with no gap (finding 13), also between a Windows PC and a Mac with two people editing at the same moment (finding 16). **But an edit can be silently undone** by a state read in the middle of it (finding 18, a spike bug, not yet fixed) |
 | A way to detect that non-parameter state changed, or a fallback such as periodic state hashing | **Built and measured**: hints from the plugin, the mouse let go in its window, and budgeted polling with hashing. How generic it can be: finding 2. Serum 2's own hints were enough (finding 12) |
-| State size measured for Serum 2 and at least two other plugins | **Measured on Windows** for Serum 2 and 27 others (finding 11). The Mac still to run |
+| State size measured for Serum 2 and at least two other plugins | **Measured** on Windows for Serum 2 and 27 others (finding 11), and on the Mac for 18 plugins (finding 15) |
 | Behaviour when a preset references a file the other machine lacks is documented | **Documented for the test VST3, and the host detects it** (finding 8). **Serum 2** keeps only a reference to an imported wavetable and opens its own Missing Files dialog; the host did not see the path (finding 12). Samplers and libraries: #117 |
-| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Proposed), with Serum 2's, Pro-Q 3's and Sylenth1's results. The Mac probe, two people at the same moment on two machines, and a version pair are still to run |
-| Plugin versions (the comment on the issue) | **The harness classifies every load** (finding 9); the test VST3 shows a silent refusal. Real version pairs: checklist below |
+| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Proposed), with Serum 2's, Pro-Q 3's and Sylenth1's results, and the Mac and two machines (findings 15 to 18). Pro-L 2 on two machines, listening to the version pair newer to older, and the fix for finding 18 are still to do |
+| Plugin versions (the comment on the issue) | **The harness classifies every load** (finding 9); the test VST3 shows a silent refusal. **Pro-Q 3 3.2.7.0 and 3.2.9.0 sync both ways** and sounded the same older to newer; the classification gives a false "not loaded" between versions (finding 17) |
 
 ## How state sync works
 
@@ -114,11 +114,12 @@ Then **Save report** in each copy and paste it into the issue. Add a row per plu
 | CollabGod Test Synth (this repo) | 1.0.0 and 2.0.0, Linux (cloud) | 266 B, 191 B; up to 10.67 MiB with embedded data | yes, ~0.5 s | wavetable yes | setDirty, mouse, polling | plugin flags the sample missing, host warns | older loads newer: refused silently; newer loads older: yes | none | parameters it moves silently are found |
 | Sylenth1 | 3.0.7.3, Windows 11, two copies on one machine | 173 KiB, 130 KiB compressed | yes; about 3 s, found by polling after an early read; no gap | not applicable | restart / program, mouse, polling | not applicable | not tried | none with exact values | does not report a preset's parameters; the loader finds and sends them (finding 14) |
 | FabFilter Pro-Q 3 (effect) | 3.2.7.0, Windows 11, two copies on one machine | 2.1 KiB, 0.3 KiB compressed | yes, at once, no gap | bands and display range yes | mouse let go, polling; `setDirty` twice in all | not applicable | not tried | none; edits a second apart in both copies settled on one state | every gesture announces a state, which matches by hash with exact values; loads take 0.1 ms; view settings travel (finding 13) |
+| FabFilter Pro-Q 3 (effect), two machines | 3.2.7.0 on Windows 11 and 3.2.9.0 on macOS 13.7, two people on a LAN | 2.2 KiB, 0.3 to 0.4 KiB compressed | yes; fetched in 5 to 15 ms, loaded in under 1 ms | bands yes | Pro-Q 3's own (`setDirty`, unchanged reports, restart); the mouse on Windows only | not applicable | both ways: newer into older loads exactly; older into newer saves back differently, parameters match; sounded the same older to newer | none heard; one state went back to the sender 7 s after a race and settled | different bands at once: both kept; same band: last to let go wins; presets at once: one wins whole. **A drag was undone** by a stale state (finding 18) |
 | Serum 2 | 2.0.24, Windows 11, two copies on one machine | 6.5 KiB (4.7 KiB + 1.8 KiB) with a factory preset; 6.5 KiB compressed with JUCE's wrapper | yes, under 1 s; then silent about 4 s | all yes | setDirty (35 to 108 per LFO drag), restart, unchanged reports, mouse; hints alone enough | reference only: Serum 2's Missing Files dialog; host saw no path | not tried | none; one announcement per change | every load silences it about 4 s; a turned knob transferred a state only because of the spike's rounding (finding 14); once showed two LFO shapes with equal states (finding 12) |
 
 ## Findings
 
-Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 and the rules' random test. Finding 11 is the probe on a maintainer's Windows machine with real plugins, and findings 12 to 14 the checklist by hand with Serum 2, FabFilter Pro-Q 3 and Sylenth1 on the same machine. Finding 14 also corrects 12 and 13: a bug in the spike made every knob turn load a state.
+Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 and the rules' random test. Finding 11 is the probe on a maintainer's Windows machine with real plugins, and findings 12 to 14 the checklist by hand with Serum 2, FabFilter Pro-Q 3 and Sylenth1 on the same machine. Finding 14 also corrects 12 and 13: a bug in the spike made every knob turn load a state. Finding 15 is the probe on a maintainer's Mac, and findings 16 to 18 are Pro-Q 3 between that Mac and the Windows PC, with two people editing at once and two versions of the plugin.
 
 1. **A saved state carries what parameters do not.** A new wavetable in A's plugin, which no parameter describes, reached B as A's saved state and B sounded the same: every one of the first eight harmonics within 0.0001 of A's, where before the change they differed by up to 0.45. From the change to B playing it took about 0.5 s, nearly all of it on purpose: 30 ms for the hint, 300 ms for the change to be still, 150 ms for B to read again. The transfer itself, 266 bytes, took 6 ms.
 
@@ -195,20 +196,63 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
     - **A state came back once, before the fix.** In one run before the fix, after each preset the receiving copy's state changed a few seconds later with no hint, it announced it, and the sender loaded it back (twice in 20 s, then it stopped). It did not happen again with exact values, so it was probably the rounding too, but that was not proved.
     - **Restarts heard were the test loop.** The spike plays an 8 s chord on a loop, so a note-triggered LFO or arpeggiator restarts every 8 s on each copy, at different moments. An LFO restart first put down to a state load was this.
 
+15. **Real plugins on the Mac (the probe, 18 plugins, macOS 13.7.2, 19 November 2026).** Nothing crashed or hung, `--try-bad-state` included. The full report is in the issue.
+
+    | Plugin | State (raw) | Compressed total | Load ms | Hash comparison works |
+    | --- | --- | --- | --- | --- |
+    | Melodyne 4.1.0 | 13.0 KiB | 12.7 KiB | 7 | yes, but two fresh copies differ |
+    | Ozone 9 Elements 9.0.3 | 5.1 KiB + 5.1 KiB | 5.3 KiB | 58 to 90 | yes |
+    | VocalSynth 2 2.01 | 3.7 KiB + 3.7 KiB | 3.9 KiB | 19 to 20 | **no** |
+    | Pro-Q 3 3.2.9.0 | 1.4 KiB + 96 B | 334 B | under 1.1 | **no** |
+    | 8 other FabFilter plugins, Red 2 EQ, Red 3 Compressor, SPAN | 92 B to 3.6 KiB + up to 16 B | 168 B to 1.1 KiB | under 6.1 | yes |
+    | Percolate, MSW2, Nebula (Soundspot) | **0 B** + 124 to 324 B | 112 to 185 B | under 0.1 | yes |
+
+    - **It agrees with Windows.** The same two plugins load into another copy with different parameters (Pro-Q 3, now in a newer version, and VocalSynth 2), and Melodyne's fresh copies differ again. Hash comparison works for the other 16.
+    - **Nothing is noisy and nothing is slow.** Every plugin read the same bytes twice and none changed after a load; the slowest read was Ozone's at 22 ms. Nothing here behaves like Serum 1 on Windows.
+    - **Three plugins keep everything in the controller state.** The Soundspot plugins save an empty component state. Sending only the component state, as a host might assume is enough, would sync nothing for them: both states must travel.
+    - **No `setDirty` and no paths**, as on Windows. 11 plugins take a truncated state (9 FabFilter, the two Red plugins) and 4 refuse it.
+
+16. **Two people on two machines, Pro-Q 3 (19 November 2026).** Pro-Q 3 3.2.7.0 on the Windows PC, which hosted, and 3.2.9.0 on the Mac, which joined over the LAN; one person at each, counting down to act together; **Log step** in both after each step. States were 2.2 KiB (0.3 to 0.4 KiB compressed), fetched in 5 to 15 ms (up to 270 ms while the other copy was busy dragging) and loaded in under 1 ms, with no audible gap.
+    - **Different bands at the same moment: both kept.** Each drag went over as parameters (225 and 185 changes sent), and both copies ended with both bands where their people left them. The state announced afterwards was already there by hash, or loaded with the same result.
+    - **The same band at the same moment: the last to let go wins.** While both held it, each copy ignored the other's values (`ignored: held here`, 478 and 550), so each person saw the band follow only their own hand. When both let go, the band jumped on one screen to the other's final position, and both ended the same. The loser's drag is gone, but they saw it go: that is the rule, not a loss.
+    - **Presets at the same moment: one wins whole.** Both copies found their own preset change and announced it; the copy whose change was still waiting when the other's arrived announced at once with a newer stamp, and the other loaded it. Both showed the same preset, and nothing flickered. In one race the PC loaded the Mac's state, went back to its own preset 7 s later (its own newer parameters set back on the load, or a second click; the logs cannot say), announced that, and the Mac loaded it: a short bounce that ended with both the same.
+    - **Every load was found by the plugin's own hints on the Mac.** The "mouse let go in the window" hint counted 0 on the Mac in every step, with the plugin window open and in use; on the PC it counted 18. The Mac found changes through Pro-Q 3's `setDirty`, restarts and unchanged parameter reports. Why the mouse is not seen on macOS is not known yet; it matters, because finding 18 would not have happened if it were.
+    - **Both copies were marked noisy** during the session, as in findings 13 and 14, while the probe found Pro-Q 3's state still when left alone.
+
+17. **A version pair: Pro-Q 3 3.2.7.0 and 3.2.9.0 (#14).** The versions differ, and state sync works both ways.
+    - **Older into newer** (the Mac loading the PC's states): 4 loads `loaded, saved back differently, parameters match`. The preset, its bands and its name showed in the newer version, including a preset the Mac's own list does not have (the name is in the state), and the two sounded the same with each muted in turn. Pro-Q 3 showed no error.
+    - **Newer into older** (the PC loading the Mac's states): all 8 `loaded exactly`, the older version saving back the newer's bytes. Three of these loaded with 2 of 346 parameters different from the sender's; that is finding 18. Whether these sound the same has not been listened to yet.
+    - **A false "not loaded".** Two loads into the newer version were classified `not loaded: the plugin's state did not change`, with a `WARNING`, although the person saw the preset arrive and no parameter differed from the sender's. Pro-Q 3 reports a preset's parameters, so parameter sync had already put the preset into the Mac's copy; the newer version saves it in other bytes, so the hashes differed, the Mac fetched the state, and loading it changed nothing. The spike checks "state unchanged" before it checks parameters. Between versions this happens whenever the parameters win the race, so the check must tell "already held this" (state unchanged, every parameter equal to the sender's) from a refusal, or it warns about every preset.
+    - **For ADR-0010:** this pair needs a flag, not a block. A block would have refused a pair that works.
+
+18. **A stale state undid an edit (a spike bug, found 19 November 2026, not yet fixed).** On the Mac, a person dragged a band in Pro-Q 3 and it snapped back after they let go, on both machines. The events from both copies show how:
+    1. During the drag, a hint from Pro-Q 3 made the Mac read its state. The bytes held the band halfway (two parameters at 0.2468 and 0.2880).
+    2. The drag ended at 0.2476 and 0.0508. Both values went out as parameters, and the PC applied them.
+    3. The Mac then announced the state it had read in step 1, with a parameter snapshot taken now, holding the final values. The Mac's copy was marked noisy, and a noisy copy skips the read that should confirm the state is still before announcing it (`StateSync::readDue` and `flush`).
+    4. The PC loaded the state. Pro-Q 3 then held the halfway values, which differed from the snapshot, so rule 2 took them as changed silently by the plugin, stamped them with the state's stamp, newer than the end of the drag, and sent them on.
+    5. The Mac applied them, and both copies ended on the halfway position. The person's last edit was lost on both machines, and the logs showed only "2 of 346 parameters differ from the sender's".
+
+    The PC loaded with 2 parameters different 2 more times that evening, during band drags on the Mac, and one earlier snap-back was seen; the events were not being logged then. Pro-Q 3's own load difference (finding 11) is not the cause here: the values sent back were ones the Mac's band passed through. The fix is to announce bytes and a parameter snapshot read together after the parameters have been still, also for a noisy copy. Rule 2 also deserves a limit: a parameter that the loaded state holds differently should not win over a newer change by the same sender to that parameter. Not yet built.
+
+    The event log (**Log events to CSV**) is written out only when it is switched off, so a file copied while logging was on ended mid-line and missed these events. Switching it off gave the full files.
+
 ## Recommendation for PLG-6
 
-[ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Proposed) records it. The Windows probe (finding 11) and Serum 2, Pro-Q 3 and Sylenth1 by hand (findings 12 to 14) support it and add the last four points. The Mac probe, two people at the same moment on two machines, and a version pair are still to run.
+[ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Proposed) records it. The Windows probe (finding 11) and Serum 2, Pro-Q 3 and Sylenth1 by hand (findings 12 to 14) support it and add the four points from "Expect some plugins not to fit" to "Do not load in a burst". The Mac probe and Pro-Q 3 on two machines, with two people and two versions (findings 15 to 18), add the last three. Pro-L 2 on two machines, listening to the version pair newer to older, and the fix for finding 18 are still to do.
 
 - **Sync the plugin's saved state as a content-addressed snapshot**: the component and controller states as raw bytes, named by SHA-256 like samples (ADR-0008), announced by hash through the relay and fetched only by those whose plugin does not already save that hash. Large states travel like samples (`spikes/sample-transfer`): chunked, resumable, as binary frames, never in front of live parameter changes.
 - **The newest state wins as a whole**, ordered with the session's other operations; parameters keep their own order and are reconciled after each load as in this spike. The announcement is an operation in the ordered log (so a late joiner gets the current state); the bytes are not.
 - **Detect changes in layers**: plugin hints, the mouse let go in the plugin's window, and polling only while the window is open, budgeted by read cost, with noisy plugins excluded. Verify every load by reading it back, and warn when it did not take.
 - **Treat file paths in a plugin's state as the plugin's business, and say so**: detect and warn when the other machine lacks a named file; do not promise to fix it. Keep the path search, which is cheap, but expect it to miss: Serum 2's paths are hidden and the plugin warns itself. Sending the files is #117.
-- **Do not block on a version difference**; flag it, and warn per load when a state is refused or loads differently.
+- **Do not block on a version difference**; flag it, and warn per load when a state is refused or loads differently. Pro-Q 3 3.2.7.0 and 3.2.9.0 synced both ways (finding 17); a block would have refused them.
 - Do the reads and loads where the interface does not stall: VST3 needs them on the main thread, so the product should avoid reading large states often (budgeted polling) and show progress when loading a large one.
 - **Expect some plugins not to fit**, as Serum 1 did on Windows: different bytes on every read, a slow load, and changes after a load. Such a plugin still syncs (hints, the mouse, a full transfer every time), but it is not polled and cannot be checked by hash. The settle window may need to come from measuring each plugin, not a fixed 1.5 s.
 - **Send parameter values exactly, so that hash comparison does its job.** A load can cost the receiver seconds of silence (Serum 2: about 4 s), so a change that parameters already carried must not cause one. With values sent bit for bit, a knob turn left the two copies saving the same bytes in Serum 2, Pro-Q 3 and Sylenth1, and nothing loaded (finding 14). Rounded values made every knob turn load a state. Any format the product uses for parameter values (JSON, binary, or a relay that re-encodes them) must bring them back exactly.
 - **Read the state again shortly after a hint.** Sylenth1 hinted before its state held the new preset, so the first read found nothing and the preset followed only when polling found it, about 3 s later (finding 14).
 - **Do not load in a burst.** Quick edits in Serum 2 sent 12 states in 10 s (before the rounding fix), each would silence the receiver, and in another burst Serum 2 refused half the loads. When a load is refused, load the newest state again once the plugin has settled, rather than leave the copies apart. Waiting longer before announcing, or before loading, for plugins whose loads are disruptive trades a slower follow for fewer gaps.
+- **Announce bytes and parameters read together, after the parameters are still.** A state read halfway through a drag and announced with the parameters from after it undid the drag on both machines (finding 18). That must hold for every plugin, including one marked noisy, and rule 2 should not let a loaded state's old value win over its own sender's newer change to the same parameter.
+- **Tell "already held this" from a refusal.** Between plugin versions, a state whose parameters arrived first changes nothing when loaded, and was reported as not loaded (finding 17). Unchanged state with every parameter equal to the sender's is not a refusal.
+- **Send both the component and the controller state.** Three plugins on the Mac keep everything in the controller state (finding 15).
 
 ### Open: a knob turned while someone else's state arrives
 
@@ -219,13 +263,17 @@ The alternative is to always do the second: load the newcomer and put this side'
 ## What is left (needs the maintainers' machines)
 
 - [x] The probe on Windows (finding 11). Paste the full report into the issue.
-- [ ] The probe on the Mac, pasted into the issue.
+- [x] The probe on the Mac (finding 15), pasted into the issue.
 - [x] The checklist above with Serum 2 (finding 12).
 - [x] The checklist with an effect: FabFilter Pro-Q 3 (finding 13).
 - [x] The checklist with another synth: Sylenth1 (finding 14).
-- [ ] Two people editing the same plugin at the same moment, on two machines (the Mac has Pro-Q 3 and Pro-L 2).
+- [x] Two people editing the same plugin at the same moment, on two machines: Pro-Q 3 (finding 16).
+- [ ] The same with Pro-L 2: the same knob, then presets.
+- [ ] Fix finding 18, with a rules test that reproduces it, and repeat a band drag on the Mac to show the edit stays.
+- [ ] Find out why the mouse let go in the window is not seen on the Mac (finding 16).
 - [x] A plugin that names a file, with that file missing: Serum 2's imported wavetable (finding 12). A sampler or library is #117.
-- [ ] At least one version pair from #14, both directions.
+- [x] At least one version pair from #14, both directions: Pro-Q 3 3.2.7.0 and 3.2.9.0 (finding 17).
+- [ ] Listen to the pair newer to older: presets loaded on the Mac, each copy muted in turn.
 - [ ] Then: fill the table, settle the recommendation, and move ADR-0011 and ADR-0010's flag-or-block question on.
 
 ## Not covered
