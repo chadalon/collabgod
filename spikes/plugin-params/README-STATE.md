@@ -210,6 +210,12 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
 - **Read the state again shortly after a hint.** Sylenth1 hinted before its state held the new preset, so the first read found nothing and the preset followed only when polling found it, about 3 s later (finding 14).
 - **Do not load in a burst.** Quick edits in Serum 2 sent 12 states in 10 s (before the rounding fix), each would silence the receiver, and in another burst Serum 2 refused half the loads. When a load is refused, load the newest state again once the plugin has settled, rather than leave the copies apart. Waiting longer before announcing, or before loading, for plugins whose loads are disruptive trades a slower follow for fewer gaps.
 
+### Open: a knob turned while someone else's state arrives
+
+Say A is turning a knob in a plugin's window while B loads a preset in the same plugin. A's copy has usually already found its own state changed (polling runs while the window is open), so the rules see two hidden changes: A does not load B's preset, sends its own whole state with a newer stamp, and B loads it. Both copies agree, but B's preset is gone from both, and no one is told. If A's copy had not read its state yet, it waits until A lets go, loads B's preset and sets A's newer parameters back on top: both edits survive.
+
+The alternative is to always do the second: load the newcomer and put this side's newer parameters back, unless there is evidence of a hidden change here. Against a real hidden edit (an LFO shape) one edit is lost either way, so it is never worse at keeping work. But it can mix a knob value meant for the old preset into the new one, and A's sound changes when they let go. Showing who has a plugin's window open, or a soft lock while someone edits a plugin, might make the case rare enough for "newest wins" alone. That is a product decision; not built or tested.
+
 ## What is left (needs the maintainers' machines)
 
 - [x] The probe on Windows (finding 11). Paste the full report into the issue.

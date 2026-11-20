@@ -44,6 +44,7 @@ At first every knob turn in all three loaded a state on the receiver. That was t
 - The parameter wire format is bound to exactness: a format that rounds values makes every knob turn a state load.
 - Loading a large state can stall the interface for a moment; the product shows progress and reads large states rarely.
 - A plugin version that refuses another version's state leaves the two sounding different. The host can tell and must show it (ADR-0010's flag-or-block question).
+- A knob turned while someone else's state arrives can make that person's state lose, since the turner's copy counts its own changed state as a competing hidden change. Loading the newcomer and putting the newer parameters back would keep both, at the cost of mixing them; presence or a soft lock per plugin might make it rare. Open (`README-STATE.md`, "Open: a knob turned while someone else's state arrives").
 - Whatever a plugin saves travels, including how its window looks (Pro-Q 3's display range). Two people cannot keep different views of one plugin.
 - A state may carry a person's local paths (and so their user name) to another member.
 - The rules are pure and fit the TypeScript sync client beside the parameter rules; the engine host reads, loads, hashes and watches for hints.
