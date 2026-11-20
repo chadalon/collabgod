@@ -712,7 +712,7 @@ private:
     {
         const auto d = sinceMark (name, v);
         const auto l = name.paddedRight (' ', 38) + d + juce::String ((juce::int64) v);
-        if (d.isNotEmpty())
+        if (d.trim().isNotEmpty())
             changedLines.add (l);
         return l;
     }
