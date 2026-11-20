@@ -8,11 +8,11 @@ It builds on the parameter spike in the same folder, because state and parameter
 
 | Done when | Status |
 | --- | --- |
-| A preset loaded in one instance appears in the other by sending the plugin's saved state | **Works with the test VST3** (a hidden wavetable, a preset that moves parameters silently, large embedded data), three members on this machine. Real plugins: not run yet; steps below |
-| A way to detect that non-parameter state changed, or a fallback such as periodic state hashing | **Built and measured**: hints from the plugin, the mouse let go in its window, and budgeted polling with hashing. How generic it can be: finding 2 |
+| A preset loaded in one instance appears in the other by sending the plugin's saved state | **Works with the test VST3** (a hidden wavetable, a preset that moves parameters silently, large embedded data), three members on this machine. **Works with Serum 2** on Windows: presets, LFO shapes, modulation and wavetables follow within a second, but Serum 2 is silent for about 4 s after every load (finding 12) |
+| A way to detect that non-parameter state changed, or a fallback such as periodic state hashing | **Built and measured**: hints from the plugin, the mouse let go in its window, and budgeted polling with hashing. How generic it can be: finding 2. Serum 2's own hints were enough (finding 12) |
 | State size measured for Serum 2 and at least two other plugins | **Measured on Windows** for Serum 2 and 27 others (finding 11). The Mac still to run |
-| Behaviour when a preset references a file the other machine lacks is documented | **Documented for the test VST3, and the host detects it** (finding 8). Real plugins: checklist below |
-| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Proposed). Provisional until the real plugins are measured |
+| Behaviour when a preset references a file the other machine lacks is documented | **Documented for the test VST3, and the host detects it** (finding 8). **Serum 2** keeps only a reference to an imported wavetable and opens its own Missing Files dialog; the host did not see the path (finding 12). Samplers and libraries: #117 |
+| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Proposed), with Serum 2's results. The Mac probe, another synth and an effect by hand, and a version pair are still to run |
 | Plugin versions (the comment on the issue) | **The harness classifies every load** (finding 9); the test VST3 shows a silent refusal. Real version pairs: checklist below |
 
 ## How state sync works
@@ -110,11 +110,11 @@ Then **Save report** in each copy and paste it into the issue. Add a row per plu
 | Plugin | Version, OS | State size (raw, compressed) | Preset follows | LFO / modulation / wavetable follow | Hint that found it | Own file on one machine | Other version: newer to older, older to newer | Echoes or loops | Other |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | CollabGod Test Synth (this repo) | 1.0.0 and 2.0.0, Linux (cloud) | 266 B, 191 B; up to 10.67 MiB with embedded data | yes, ~0.5 s | wavetable yes | setDirty, mouse, polling | plugin flags the sample missing, host warns | older loads newer: refused silently; newer loads older: yes | none | parameters it moves silently are found |
-| | | | | | | | | | |
+| Serum 2 | 2.0.24, Windows 11, two copies on one machine | 6.5 KiB (4.7 KiB + 1.8 KiB) with a factory preset; 6.5 KiB compressed with JUCE's wrapper | yes, under 1 s; then silent about 4 s | all yes | setDirty (35 to 108 per LFO drag), restart, unchanged reports, mouse; hints alone enough | reference only: Serum 2's Missing Files dialog; host saw no path | not tried | none; one announcement per change | every load silences it about 4 s; a turned knob still transfers a state; once showed two LFO shapes with equal states (finding 12) |
 
 ## Findings
 
-Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 and the rules' random test. Finding 11 is the probe on a maintainer's Windows machine with real plugins. Real plugins have not been through the checklist yet.
+Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 and the rules' random test. Finding 11 is the probe on a maintainer's Windows machine with real plugins, and finding 12 the checklist by hand with Serum 2 on the same machine.
 
 1. **A saved state carries what parameters do not.** A new wavetable in A's plugin, which no parameter describes, reached B as A's saved state and B sounded the same: every one of the first eight harmonics within 0.0001 of A's, where before the change they differed by up to 0.45. From the change to B playing it took about 0.5 s, nearly all of it on purpose: 30 ms for the hint, 300 ms for the change to be still, 150 ms for B to read again. The transfer itself, 266 bytes, took 6 ms.
 
@@ -162,33 +162,47 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
     - **Five plugins load into another copy with different parameter values:** Serum 1, SerumFX, Pro-Q 3, Pro-Q 4 and VocalSynth 2. This is the silent difference in rule 2 that the host finds and sends on. The same five, plus Melodyne, also differ between two fresh copies, so for them a join always transfers a state.
     - **17 plugins take a truncated state** (Emergence and all 16 FabFilter plugins) and change, with no error. The other 11 refuse it and keep their state.
     - **No paths were found in any state.** That is with nothing loaded and no presets, so it says nothing about samplers or imported wavetables. That is still the checklist's job.
-    - **No plugin called `setDirty`** while probing. That is expected with no edits; Serum 2 did restart 11 times. Whether real edits produce hints is still the checklist's job.
+    - **No plugin called `setDirty`** while probing. That is expected with no edits; Serum 2 did restart 11 times. Edited by hand, Serum 2 calls it constantly (finding 12).
+
+12. **Serum 2 by hand (two copies on one Windows 11 machine, 19 November 2026).** Serum 2.0.24, the checklist above, with **Hints, and poll while the window is open** unless noted. The two saved reports are pasted into the issue.
+    - **Everything hidden follows.** A factory preset, an LFO shape, an LFO dragged onto a knob and a factory wavetable each reached the other copy in under a second. Each state was 8.5 to 8.8 KiB with JUCE's wrapper (component 4.7 KiB and controller 1.8 KiB as raw bytes), 6.3 to 6.5 KiB compressed, and took 3 to 10 ms to arrive from asking; one took 2.7 s, unexplained.
+    - **Every load silences Serum 2 for about 4 seconds.** The host's load took 150 to 330 ms; the sound came back about 4 s later, every time, for a preset or a single LFO point. This is the biggest finding: each state Serum 2 receives costs the receiver 4 s of silence, so the product must load as few as it can.
+    - **A turned knob still sends a state.** Parameter sync carried the knob, but the receiver's state did not then hash the same as the sender's, so it fetched and loaded it, with the 4 s gap. An on/off switch (an oscillator) did match (`already had it`). Across both reports, 1 of 103 states received was already there; the probe's "hash comparison works" holds for a state loaded into another copy, not for two copies brought together by parameters. A likely cause is that a continuously turned value is stored slightly differently on each side; that was not checked.
+    - **Serum 2 hints, a lot.** One LFO drag raised `setDirty` by 108 and the unchanged parameter reports by 19. With detection set to hints only, the LFO edit still synced. Both copies also called restart about 90 times over the session. In both, the host marked the state noisy (it changed with nothing done) and stopped polling it, so hints and the mouse found the changes.
+    - **An imported wavetable is a reference.** With the file's folder renamed, the receiving Serum 2 opened its own **Missing Files** dialog, naming the oscillator and the file, with folders to search and a **Start search** button. The host found no path in the state: Serum 2 stores it in a form the text search cannot see. So the warning in finding 8 does not work for Serum 2, and the plugin tells the person itself. Finding the file to send is #117.
+    - **No echo.** One LFO change gave one announcement in each copy, and nothing went back and forth.
+    - **Both at once.** Presets changed in both copies together always ended the same. Quick LFO edits in both did once leave the two copies drawing different LFO 2 shapes: they announced with the same stamp, the tie was broken one way, and the loser loaded the winner's state and read it back exactly (`loaded exactly`). Reopening the plugin windows and reading the state again changed nothing. So the two states were equal and Serum 2 showed different shapes: inside the plugin, or a part of what it plays that it does not save. Not reproduced.
+    - **A stuck sound.** After those edits, both copies played a plain init-like saw while showing a preset; reopening the window did not help, and loading a factory preset in one copy fixed both. The preset used the imported wavetable whose file was missing, which may be why; not checked.
+    - **Not tried:** a sampler (Serum 2's noise oscillator with a user file behaved oddly and was left for #117), another version of Serum 2, and a second synth and an effect by hand.
 
 ## Recommendation for PLG-6
 
-Provisional until the probe has run on the Mac and the checklist on real plugins; [ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Proposed) records it. The Windows probe (finding 11) supports it and adds the last point.
+[ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Proposed) records it. The Windows probe (finding 11) and Serum 2 by hand (finding 12) support it and add the last three points. The Mac probe, another synth, an effect and a version pair are still to run.
 
 - **Sync the plugin's saved state as a content-addressed snapshot**: the component and controller states as raw bytes, named by SHA-256 like samples (ADR-0008), announced by hash through the relay and fetched only by those whose plugin does not already save that hash. Large states travel like samples (`spikes/sample-transfer`): chunked, resumable, as binary frames, never in front of live parameter changes.
 - **The newest state wins as a whole**, ordered with the session's other operations; parameters keep their own order and are reconciled after each load as in this spike. The announcement is an operation in the ordered log (so a late joiner gets the current state); the bytes are not.
 - **Detect changes in layers**: plugin hints, the mouse let go in the plugin's window, and polling only while the window is open, budgeted by read cost, with noisy plugins excluded. Verify every load by reading it back, and warn when it did not take.
-- **Treat file paths in a plugin's state as the plugin's business, and say so**: detect and warn when the other machine lacks a named file; do not promise to fix it.
+- **Treat file paths in a plugin's state as the plugin's business, and say so**: detect and warn when the other machine lacks a named file; do not promise to fix it. Keep the path search, which is cheap, but expect it to miss: Serum 2's paths are hidden and the plugin warns itself. Sending the files is #117.
 - **Do not block on a version difference**; flag it, and warn per load when a state is refused or loads differently.
 - Do the reads and loads where the interface does not stall: VST3 needs them on the main thread, so the product should avoid reading large states often (budgeted polling) and show progress when loading a large one.
 - **Expect some plugins not to fit**, as Serum 1 did on Windows: different bytes on every read, a slow load, and changes after a load. Such a plugin still syncs (hints, the mouse, a full transfer every time), but it is not polled and cannot be checked by hash. The settle window may need to come from measuring each plugin, not a fixed 1.5 s.
+- **Load a state only when it holds something parameters did not carry.** A load can cost the receiver seconds of silence (Serum 2: about 4 s), and a knob turn in Serum 2 changes the state even after parameter sync. The spike loads whenever the hashes differ. The product should not load for a change the sender's parameters already explain: for example, the sender marks an announcement as parameters only when nothing but parameter changes happened in it, and receivers then record it without loading. This has not been built or tested; how to tell a hidden change from a parameter change without seeing inside the state is the open part.
+- **Do not load in a burst.** Quick edits in Serum 2 sent 12 states in 10 s, and each would silence the receiver. Waiting longer before announcing, or before loading, for plugins whose loads are disruptive trades a slower follow for fewer gaps.
 
 ## What is left (needs the maintainers' machines)
 
 - [x] The probe on Windows (finding 11). Paste the full report into the issue.
 - [ ] The probe on the Mac, pasted into the issue.
-- [ ] The checklist above with Serum 2, another synth and an effect, on one machine or two.
-- [ ] A plugin that names a file, with that file on one machine only.
+- [x] The checklist above with Serum 2 (finding 12).
+- [ ] The checklist with another synth and an effect.
+- [x] A plugin that names a file, with that file missing: Serum 2's imported wavetable (finding 12). A sampler or library is #117.
 - [ ] At least one version pair from #14, both directions.
 - [ ] Then: fill the table, settle the recommendation, and move ADR-0011 and ADR-0010's flag-or-block question on.
 
 ## Not covered
 
 - Plugin formats other than VST3 (ADR-0010).
-- Sending files a state names. Only detected.
+- Sending files a state names. Only detected, and only when the path is visible (#117).
 - **Omnisphere, and plugins that play from a large sample library on disk.** Not tested; to come back to in #117, which also covers sending the files a state names. They are where a file one machine lacks matters most (finding 8). The Windows machine has Omnisphere only as VST2, AAX and standalone, which the spike cannot host, and the Mac has none. To start: install its VST3 (the Spectrasonics installer or updater), run `--probe-state` on `Omnisphere.vst3`, then the checklist's file test with a patch whose samples only one machine has.
 - The relay: the spike uses its own TCP link, with JSON and base64 where the product would use binary frames.
 - Undo of a state change, and saving states in the session file (they would be operations, ADR-0004).
