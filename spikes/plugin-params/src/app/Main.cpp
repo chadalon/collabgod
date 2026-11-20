@@ -11,6 +11,7 @@
 #include <JuceHeader.h>
 
 #include <algorithm>
+#include <map>
 #include <numeric>
 
 #include "../host/Link.h"
@@ -122,6 +123,7 @@ public:
         addButton (automationButton, "Add sweep automation", [this] { addAutomation(); });
         addButton (reportButton, "Save report", [this] { saveReport(); });
         addButton (peaksButton, "Reset peaks", [this] { rates.resetPeaks(); });
+        addButton (markButton, "Mark counters", [this] { markCounters(); });
         addButton (sendStateButton, "Send state now", [this] { session->getState().sendNow (PluginSession::nowMs()); });
         addButton (readStateButton, "Read state now", [this] { session->getState().checkNow (PluginSession::nowMs()); });
 
@@ -147,7 +149,8 @@ public:
         addressEditor.setText ("127.0.0.1:52799");
         filterEditor.setTextToShowWhenEmpty ("Filter parameters", juce::Colours::grey);
         filterEditor.onTextChange = [this] { refilter(); };
-        for (auto* e : { &portEditor, &addressEditor, &filterEditor })
+        statsFilter.setTextToShowWhenEmpty ("Show only counter lines containing...", juce::Colours::grey);
+        for (auto* e : { &portEditor, &addressEditor, &filterEditor, &statsFilter })
             addAndMakeVisible (e);
 
         throttleBox.addItemList ({ "Throttle off", "Throttle 16 ms", "Throttle 33 ms", "Throttle 50 ms", "Throttle 100 ms" }, 1);
@@ -257,6 +260,10 @@ public:
         reportButton.setBounds (bottomButtons.removeFromLeft (110));
         bottomButtons.removeFromLeft (6);
         peaksButton.setBounds (bottomButtons.removeFromLeft (110));
+        bottomButtons.removeFromLeft (6);
+        markButton.setBounds (bottomButtons.removeFromLeft (120));
+        statsFilter.setBounds (r.removeFromTop (26));
+        r.removeFromTop (4);
         statsView.setBounds (r.removeFromTop (r.getHeight() * 3 / 5));
         r.removeFromTop (4);
         logView.setBounds (r);
@@ -674,7 +681,63 @@ private:
                              + juce::String ((int) session->getPeers().size()) + " other member(s)"
                              + (session->getEdit().getTransport().isPlaying() ? ", playing" : ""),
                              juce::dontSendNotification);
-        statsView.setText (statsText(), false);
+        setTextKeepingScroll (statsView, shownStats());
+    }
+
+    // The counters' "since mark" column: the change in each count since Mark was pressed,
+    // left blank when it has not changed, so what moved stands out.
+    juce::String sinceMark (const juce::String& name, std::uint64_t v) const
+    {
+        if (capturingMark)
+            markBase[name] = v;
+        if (markTime.isEmpty())
+            return {};
+        const auto it = markBase.find (name);
+        const auto d = it == markBase.end() ? (juce::int64) v : (juce::int64) v - (juce::int64) it->second;
+        return (d == 0 ? juce::String() : (d > 0 ? "+" : "") + juce::String (d)).paddedRight (' ', 8);
+    }
+
+    juce::String markColumnTitle() const
+    {
+        return markTime.isEmpty() ? juce::String() : juce::String ("since " + markTime).paddedRight (' ', 8) + "\n";
+    }
+
+    void markCounters()
+    {
+        markBase.clear();
+        markTime = juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+        capturingMark = true;
+        statsText();
+        capturingMark = false;
+    }
+
+    // The counters as shown: only the lines containing the filter's text, if any.
+    juce::String shownStats() const
+    {
+        const auto text = statsText();
+        const auto filter = statsFilter.getText().trim();
+        if (filter.isEmpty())
+            return text;
+        juce::StringArray kept;
+        for (const auto& l : juce::StringArray::fromLines (text))
+            if (l.containsIgnoreCase (filter))
+                kept.add (l);
+        return kept.joinIntoString ("\n");
+    }
+
+    // Replaces a read-only editor's text without moving it back to the top.
+    static void setTextKeepingScroll (juce::TextEditor& e, const juce::String& text)
+    {
+        if (e.getText() == text)
+            return;
+        juce::Viewport* viewport = nullptr;
+        for (auto* c : e.getChildren())
+            if ((viewport = dynamic_cast<juce::Viewport*> (c)) != nullptr)
+                break;
+        const auto position = viewport != nullptr ? viewport->getViewPosition() : juce::Point<int>();
+        e.setText (text, false);
+        if (viewport != nullptr)
+            viewport->setViewPosition (position);
     }
 
     juce::String statsText() const
@@ -691,13 +754,18 @@ private:
           << (int) h.params.size() << " parameters synced, of " << session->getInstance()->getParameters().size()
           << " the plugin reports\n\n";
 
+        t << stateText() << "\nPARAMETERS\n";
+
         t << "                         now     peak\n";
         for (auto& r : rates.rows)
             t << juce::String (r.name).paddedRight (' ', 22) << juce::String (r.now, 0).paddedLeft (' ', 8)
               << juce::String (r.peak, 0).paddedLeft (' ', 9) << "\n";
 
-        auto line = [&t] (const char* name, std::uint64_t v) { t << juce::String (name).paddedRight (' ', 38) << (juce::int64) v << "\n"; };
-        t << "\n";
+        auto line = [this, &t] (const char* name, std::uint64_t v)
+        {
+            t << juce::String (name).paddedRight (' ', 38) << sinceMark (name, v) << (juce::int64) v << "\n";
+        };
+        t << "\n" << juce::String().paddedRight (' ', 38) << markColumnTitle();
         line ("plugin reports, total", s.rawValueEvents);
         line ("  of them off the message thread", s.rawValueEventsOffMessageThread);
         line ("gesture reports", s.rawGestureEvents);
@@ -722,7 +790,6 @@ private:
             if (! lines.isEmpty())
                 t << "\nParameter lists differ from " << m << ":\n  " << lines.joinIntoString ("\n  ") << "\n";
 
-        t << "\n" << stateText();
         return t;
     }
 
@@ -734,36 +801,46 @@ private:
         const auto& y = state.getSync().stats();
         const auto& last = state.lastRead();
         juce::String t;
-        auto line = [&t] (const char* name, const juce::String& v) { t << juce::String (name).paddedRight (' ', 38) << v << "\n"; };
-        auto n = [] (std::uint64_t v) { return juce::String ((juce::int64) v); };
+        const auto blank = juce::String().paddedRight (' ', markTime.isEmpty() ? 0 : 8);
+        auto line = [&t, &blank] (const juce::String& name, const juce::String& v) { t << name.paddedRight (' ', 38) << blank << v << "\n"; };
+        auto count = [this, &t] (const juce::String& name, std::uint64_t v)
+        {
+            t << name.paddedRight (' ', 38) << sinceMark (name, v) << (juce::int64) v << "\n";
+        };
         auto kib = [] (std::uint64_t v) { return juce::String ((double) v / 1024.0, 1) + " KiB"; };
 
-        t << "State: " << (state.enabled ? "synced" : "not synced") << ", " << detectBox.getText().toLowerCase()
-          << (state.getSync().isNoisy() ? "; NOISY: it changes with nothing done, so it is not polled" : "") << "\n";
+        t << "STATE: " << (state.enabled ? "synced" : "not synced") << ", " << detectBox.getText().toLowerCase()
+          << (state.getSync().isNoisy() ? "; NOISY: it changes with nothing done, so it is not polled" : "") << "\n"
+          << juce::String().paddedRight (' ', 38) << markColumnTitle();
+        count ("hints: setDirty", s.hintSetDirty);
+        count ("hints: restart / program", s.hintRestart);
+        count ("hints: unchanged parameter reports", s.hintSameValues);
+        count ("hints: mouse let go in the window", s.hintWindow);
+        count ("changes found here", y.localChanges);
+        count ("  with no hint or activity", y.unprompted);
+        count ("taken as settling after a load", y.absorbedSettling);
+        count ("taken as others' parameters", y.absorbedRemoteParams);
+        count ("announced", s.announcesSent);
+        count ("  early, after someone else's", y.forced);
+        count ("received", y.received);
+        count ("  older, ignored", y.stale);
+        count ("  already had it (same hash)", y.matched);
+        count ("  fetched", y.fetches);
+        count ("  applied", s.applies);
+        for (const auto& [outcome, n] : s.outcomes)
+            count ("    " + outcome, n);
+        count ("parameters it changed silently", y.paramsDiscovered);
+        count ("parameters put back after a load", y.paramsPutBack);
+        count ("files named but not on this machine", s.pathsMissingHere);
+        t << "\n";
         line ("size now", kib (last.bytes.getSize()) + " (component " + kib (last.componentBytes) + ", controller " + kib (last.controllerBytes) + ")");
-        line ("reads", n (y.reads) + ", " + juce::String (y.reads > 0 ? y.readMsTotal / (double) y.reads : 0.0, 2) + " ms on average, "
-                      + juce::String (y.readMsMax, 2) + " ms at most; polling every " + juce::String (state.getSync().pollIntervalMs(), 0) + " ms");
-        line ("hints: setDirty", n (s.hintSetDirty));
-        line ("hints: restart / program", n (s.hintRestart));
-        line ("hints: unchanged parameter reports", n (s.hintSameValues));
-        line ("hints: mouse let go in the window", n (s.hintWindow));
-        line ("changes found here", n (y.localChanges) + " (" + n (y.unprompted) + " with no hint or activity)");
-        line ("taken as settling after a load", n (y.absorbedSettling));
-        line ("taken as others' parameters", n (y.absorbedRemoteParams));
-        line ("announced", n (s.announcesSent) + " (" + n (y.forced) + " early, after someone else's)");
-        line ("received / older, ignored", n (y.received) + " / " + n (y.stale));
-        line ("already had it (same hash)", n (y.matched));
-        line ("fetched / applied", n (y.fetches) + " / " + n (s.applies) + ", applying took "
-                                   + juce::String (s.applies > 0 ? s.applyMsTotal / (double) s.applies : 0.0, 1) + " ms on average, "
-                                   + juce::String (s.applyMsMax, 1) + " at most");
+        line ("reads", juce::String ((juce::int64) y.reads) + ", " + juce::String (y.reads > 0 ? y.readMsTotal / (double) y.reads : 0.0, 2)
+                      + " ms on average, " + juce::String (y.readMsMax, 2) + " ms at most; polling every "
+                      + juce::String (state.getSync().pollIntervalMs(), 0) + " ms");
+        line ("applying", juce::String (s.applies > 0 ? s.applyMsTotal / (double) s.applies : 0.0, 1) + " ms on average, "
+                          + juce::String (s.applyMsMax, 1) + " at most");
         line ("last transfer", kib (s.lastRawSize) + ", " + kib (s.lastCompressedSize) + " compressed, " + juce::String (s.lastTransferMs, 0) + " ms");
         line ("state data sent / received", kib (s.dataBytesSent) + " / " + kib (s.dataBytesReceived));
-        line ("parameters it changed silently", n (y.paramsDiscovered));
-        line ("parameters put back after a load", n (y.paramsPutBack));
-        line ("files named but not on this machine", n (s.pathsMissingHere));
-
-        for (const auto& [outcome, count] : s.outcomes)
-            line (("applied: " + outcome).toRawUTF8(), n (count));
 
         return t;
     }
@@ -823,11 +900,15 @@ private:
     int connections = 0;
 
     juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, automationButton,
-                     reportButton, peaksButton, sendStateButton, readStateButton;
+                     reportButton, peaksButton, markButton, sendStateButton, readStateButton;
     juce::ToggleButton muteButton, logButton, stateButton;
     juce::ComboBox detectBox;
     bool pressedInWindow = false;
-    juce::TextEditor portEditor, addressEditor, filterEditor, statsView, logView;
+    juce::TextEditor portEditor, addressEditor, filterEditor, statsFilter, statsView, logView;
+    // Counter values when Mark was pressed, by line name; statsText() fills them while capturing.
+    mutable std::map<juce::String, std::uint64_t> markBase;
+    mutable bool capturingMark = false;
+    juce::String markTime;
     juce::ComboBox throttleBox, echoBox;
     juce::Label statusLabel;
     juce::ListBox list;
