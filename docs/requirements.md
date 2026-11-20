@@ -1,6 +1,6 @@
-# Requirements (v0.5)
+# Requirements (v0.6)
 
-Sixty-one requirements across eight areas. Issues refer to these IDs.
+Sixty-seven requirements across nine areas. Issues refer to these IDs.
 
 Priority:
 
@@ -20,6 +20,8 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 
 **Audio recording is out of v1** (decided 2026-11-11, issue #6). A take recorded in another program is dragged in as an audio file and reaches the other person through the normal sample transfer. MIDI keyboard recording stays in as DAW-9. When recording is added later, a recorded take should be treated as one more audio file, so it needs nothing new from the sync layer.
 
+**Live playing** (raised 2026-11-19, #120). When someone plays an armed track, the others hear it as it happens and can play along, a little out of sync at first. v1 aims for live MIDI on instrument tracks (LIV-1 to LIV-3). Live audio input waits with recording (LIV-5), and playing tightly in time (LIV-4) and trying someone's playing through your own sound (LIV-6) are later.
+
 **Lobby size and identity** (decided 2026-11-12, issue #94, ADR-0006 and ADR-0007). Nothing in the protocol, the session format or the model assumes two people. The relay limits how many are connected at once, and v1 sets that to two and is tested with two. A person is a member of the project, saved in the project, and stays the same person across connections. There are no accounts in v1: identity belongs to one install of the app. Requirements below that say "both" or "the other person" describe two people, the tested case.
 
 ## Lobby and presence
@@ -35,6 +37,17 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | LOB-7 | Each person is a member with a stable identity, and the member list is saved in the project. A dropped connection removes their presence, not their membership, and they return as the same person. See ADR-0006. | Must |
 | LOB-8 | The relay limits how many people are connected to a lobby at once. The limit is a relay setting, and v1 is tested with two. | Must |
 | LOB-9 | Anyone in the lobby can see who made a clip, a note or an edit. | Should |
+
+## Live playing
+
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| LIV-1 | When a member arms an instrument track and plays, the others hear it live through their own copy of the instrument. Playing is not an edit and never enters the edit log. A delay of about the network round trip is acceptable. | Should |
+| LIV-2 | Everyone sees which tracks each member has armed and the notes they are playing as they play, colour-coded. | Should |
+| LIV-3 | Each person can mute another member's live playing for themselves only, without muting the track. What LIV-2 shows stays visible while muted. | Should |
+| LIV-4 | Live playing is fast and steady enough for people in different cities to play in time together, and each person can see their current delay. | Later |
+| LIV-5 | Live audio input, such as a voice or guitar on an armed audio track, is heard by the others, with the same mute and visuals. | Later |
+| LIV-6 | While a member plays, another can try that live playing through different presets and effects heard only by themselves, without changing the shared track, then apply what they chose to the track. | Later |
 
 ## Sync
 
