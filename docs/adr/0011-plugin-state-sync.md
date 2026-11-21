@@ -40,7 +40,7 @@ Between a Windows PC and a Mac, two people editing Pro-Q 3 at the same moment en
 
 ## Consequences
 
-- A preset, an LFO shape or a wavetable follows within about a second when the plugin hints or the person uses its window; a plugin that does neither is found by polling, more slowly, and an edit made in the moments after another member's state arrives can be missed (in the spike's random test, 2.5 to 7 % of runs with no signal at all).
+- A preset, an LFO shape or a wavetable follows within about a second when the plugin hints or the person uses its window; a plugin that does neither is found by polling, more slowly, and an edit made in the moments after another member's state arrives, with no sign of a person, can be taken as the plugin settling (rare: none in the spike's random test of 2,000 runs once a bug that marked busy plugins noisy was fixed).
 - Two people changing the same plugin's hidden part at once do not merge: one wins. With Serum 2 this once left the two copies showing different LFO shapes although their saved states were equal, which the host cannot detect.
 - Each state load can silence the receiving plugin for a few seconds (Serum 2: about 4 s). A knob turn does not load, but a preset or another hidden change does, and the other person hears the gap.
 - The parameter wire format is bound to exactness: a format that rounds values makes every knob turn a state load.
@@ -54,4 +54,4 @@ Between a Windows PC and a Mac, two people editing Pro-Q 3 at the same moment en
 
 ## How we will know
 
-Issue #13's remaining runs on the maintainers' machines: Pro-L 2 on two machines, and the band drag repeated once finding 18 is fixed. Further version pairs from #14 as they come. If real plugins rarely save the same bytes for the same content, comparing hashes saves little and every announcement means a transfer. If they rarely hint and the mouse misses their edits, detection needs another layer. If a version pair loads with a silent difference, ADR-0010 should block, not flag, for that case.
+Issue #13's remaining runs on the maintainers' machines: Pro-L 2 on two machines, and the band drag repeated now that finding 18 is fixed in the rules. Further version pairs from #14 as they come. If real plugins rarely save the same bytes for the same content, comparing hashes saves little and every announcement means a transfer. If they rarely hint and the mouse misses their edits, detection needs another layer. If a version pair loads with a silent difference, ADR-0010 should block, not flag, for that case.
