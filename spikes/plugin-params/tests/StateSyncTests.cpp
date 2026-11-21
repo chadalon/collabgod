@@ -336,16 +336,6 @@ void ruleTests()
         CHECK (b.params.value ("cutoff") && std::abs (*b.params.value ("cutoff") - 0.2476f) < 1e-6f);
     });
 
-    test ("a newer state from someone else does not make a change here go out before it is confirmed", [] {
-        Unit a ("a");
-        a.state.hint (0.0);
-        a.run (0.0, 50.0, "a1");
-        a.state.receive ("b", { "b1", 10, Stamp { 7, "b" } }, "a1", 60.0);
-        CHECK (! a.state.flush (61.0, false));          // read once, not yet still
-        auto out = a.run (62.0, 600.0, "a1");
-        CHECK (out && out->ref.hash == "a1" && (Stamp { 7, "b" }) < out->ref.stamp);
-    });
-
     test ("slow reads stretch the polling interval to the budget", [] {
         StateOptions o; o.pollMs = 100.0; o.pollBudget = 0.02;
         Unit a ("a", o);
@@ -355,17 +345,175 @@ void ruleTests()
         CHECK (a.state.readDue (1000.0, true));
     });
 
-    test ("if someone else's state arrives during a change here, ours goes out at once with a newer stamp", [] {
-        Unit a ("a"), b ("b");
+    test ("a change here not yet announced is replaced by a newer state from someone else, not sent over it", [] {
+        Unit a ("a");
         a.state.hint (0.0);
-        a.run (0.0, 50.0, "a1");
+        a.run (0.0, 50.0, "a1");                       // a hidden edit here, seen but not yet still
         CHECK (a.state.hasLocalChange());
-        StateRef theirs { "b1", 10, Stamp { 7, "b" } };
-        CHECK (a.state.receive ("b", theirs, "a1", 60.0).need == Need::nothing);
-        auto out = a.run (61.0, 600.0, "a1");
-        CHECK (out && out->ref.hash == "a1");
-        CHECK (theirs.stamp < out->ref.stamp);
-        CHECK (a.state.stats().forced == 1);
+        const StateRef theirs { "b1", 10, Stamp { 7, "b" } };
+        auto step = a.state.receive ("b", theirs, "a1", 60.0);
+        CHECK (step.need == Need::recheck);
+        CHECK (! a.run (61.0, 209.0, "a1"));           // nothing goes out while theirs is on its way
+        CHECK (a.state.recheck ("a1", 210.0).need == Need::fetch);
+        CHECK (! a.run (211.0, 600.0, "a1"));
+        CHECK (a.state.arrived ("b1", {}));
+        CHECK (a.state.applyDue (false).has_value());
+        a.state.applied ("b1", 10, 650.0);
+        CHECK (! a.state.hasLocalChange());
+        CHECK (! a.run (651.0, 3000.0, "b1"));
+        CHECK (a.state.stats().replacedHere == 1);
+        CHECK (a.state.stats().announced == 0);
+    });
+
+    test ("the decision on #13: A holds a knob while B loads a preset; both end on B's preset with A's knob, and nothing bounces", [] {
+        // Two members with a plugin each: a hidden part and two parameters. A turns
+        // cutoff and holds it while B loads a preset (new hidden part, cutoff 0.2,
+        // res 0.9, both reported). A polls, so it sees its own state change from
+        // the knob alone. Messages take 10 ms.
+        struct Plugin { int hidden = 0; std::map<std::string, float> params { { "cutoff", 0.5f }, { "res", 0.5f } }; };
+        struct Blob { int hidden; std::map<std::string, float> params; };
+        struct Msg { double at; int to; int kind; std::vector<Change> changes; StateRef ref; std::string hash; };
+        enum { paramsMsg, announceMsg, wantMsg, bytesMsg };
+
+        StateOptions o; o.pollMs = 100.0;
+        Options po; po.flushIntervalMs = 33.0;
+        Plugin plug[2];
+        ParamSync ps[2] { ParamSync ("a", po), ParamSync ("b", po) };
+        std::unique_ptr<StateSync> ss[2];
+        std::map<std::string, Blob> bytes;
+        std::map<std::string, ParamSync::Snapshot> offers;
+        std::vector<Msg> net;
+        bool holding[2] { false, false };
+        std::uint64_t announced[2] {}, applied[2] {};
+
+        auto save = [&] (int m)
+        {
+            auto& p = plug[m];
+            const auto text = std::to_string (p.hidden) + "|" + std::to_string (p.params["cutoff"]) + "|" + std::to_string (p.params["res"]);
+            const auto h = sha (text);
+            bytes[h] = { p.hidden, p.params };
+            return h;
+        };
+
+        for (int m = 0; m < 2; ++m)
+        {
+            for (auto& [k, v] : plug[m].params)
+                ps[m].seed (k, v);
+            ss[m] = std::make_unique<StateSync> (ps[m], [&plug, m] { return plug[m].params; }, o);
+            ss[m]->loaded (save (m), 10);
+        }
+
+        auto send = [&] (int to, Msg msg, double now) { msg.at = now + 10.0; msg.to = to; net.push_back (std::move (msg)); };
+        auto knob = [&] (int m, const std::string& n, float v, double now)
+        {
+            plug[m].params[n] = v;
+            ss[m]->localActivity (now);
+            if (auto again = ps[m].localValue (n, v, now))
+                plug[m].params[again->param] = again->value;
+        };
+
+        for (double now = 0.0; now <= 6000.0; now += 1.0)
+        {
+            // A takes the knob and keeps turning it, a step every 20 ms, from 0.5 to 0.8, letting go at 3 s.
+            if (now == 0.0)
+            {
+                ps[0].localGestureBegin ("cutoff", now);
+                holding[0] = true;
+            }
+            if (now <= 3000.0 && (int) now % 20 == 0)
+                knob (0, "cutoff", 0.5f + 0.3f * (float) (now / 3000.0), now);
+            if (now == 3000.0)
+            {
+                ps[0].localGestureEnd ("cutoff", now);
+                holding[0] = false;
+            }
+            if (now == 2900.0)
+                CHECK (announced[1] == 1 && applied[0] == 0);   // B's preset went out while A kept turning; A waits
+
+            // B loads a preset at 50 ms.
+            if (now == 50.0)
+            {
+                plug[1].hidden = 7;
+                knob (1, "cutoff", 0.2f, now);
+                knob (1, "res", 0.9f, now);
+                ss[1]->hint (now);
+            }
+
+            for (int m = 0; m < 2; ++m)
+            {
+                auto& s = *ss[m];
+                const int other = 1 - m;
+
+                if (s.readDue (now, true))
+                    s.observed (save (m), 10, 0.1, now);
+
+                if (s.recheckDue (now))
+                    if (auto step = s.recheck (save (m), now); step.need == Need::fetch)
+                        send (other, { 0, 0, wantMsg, {}, {}, step.hash }, now);
+
+                if (auto h = s.applyDue (holding[m]))
+                {
+                    const auto blob = bytes.at (*h);
+                    plug[m].hidden = blob.hidden;
+                    plug[m].params = blob.params;
+                    ++applied[m];
+                    for (auto& again : s.applied (save (m), 10, now))
+                        plug[m].params[again.param] = again.value;
+                }
+
+                if (auto offer = s.flush (now, holding[m]))
+                {
+                    ++announced[m];
+                    offers[offer->ref.hash] = offer->params;
+                    send (other, { 0, 0, announceMsg, {}, offer->ref, {} }, now);
+                }
+
+                if (auto out = ps[m].flush (now); ! out.empty())
+                    send (other, { 0, 0, paramsMsg, out, {}, {} }, now);
+            }
+
+            for (std::size_t i = 0; i < net.size();)
+            {
+                if (net[i].at > now) { ++i; continue; }
+                auto msg = net[i];
+                net.erase (net.begin() + (std::ptrdiff_t) i);
+                const int to = msg.to, from = 1 - to;
+                const std::string sender = from == 0 ? "a" : "b";
+
+                if (msg.kind == paramsMsg)
+                {
+                    auto applies = ps[to].receive (sender, msg.changes, now);
+                    bool held = false;
+                    for (auto& ap : applies)
+                    {
+                        plug[to].params[ap.param] = ap.value;
+                        held = held || ! ps[to].heldBy (ap.param).empty();
+                    }
+                    if (! applies.empty())
+                        ss[to]->remoteActivity (now, held);
+                }
+                else if (msg.kind == announceMsg)
+                {
+                    if (auto step = ss[to]->receive (sender, msg.ref, save (to), now); step.need == Need::fetch)
+                        send (from, { 0, 0, wantMsg, {}, {}, step.hash }, now);
+                }
+                else if (msg.kind == wantMsg)
+                    send (from, { 0, 0, bytesMsg, {}, {}, msg.hash }, now);
+                else
+                    ss[to]->arrived (msg.hash, offers.at (msg.hash));
+            }
+        }
+
+        CHECK (plug[0].hidden == 7 && plug[1].hidden == 7);                                    // B's preset on both
+        CHECK (std::abs (plug[0].params["cutoff"] - 0.8f) < 1e-6f);                             // A's knob on both
+        CHECK (std::abs (plug[1].params["cutoff"] - 0.8f) < 1e-6f);
+        CHECK (std::abs (plug[0].params["res"] - 0.9f) < 1e-6f);                                // the rest of B's preset
+        CHECK (std::abs (plug[1].params["res"] - 0.9f) < 1e-6f);
+        CHECK (save (0) == save (1));
+        CHECK (announced[0] == 0);                                                              // A never sent its whole state
+        CHECK (applied[0] == 1 && applied[1] == 0);                                             // B's loaded once, nothing came back
+        CHECK (ss[0]->stats().replacedHere == 1);                                               // A's knob-only change was seen, and replaced
+        CHECK (net.empty() && ! ss[0]->isWaiting() && ! ss[1]->hasLocalChange() && ! ps[0].hasPending());
     });
 
     test ("a parameter the plugin changed without telling the host is found by whoever applies the state, and sent on", [] {
@@ -663,6 +811,7 @@ RunResult simulate (unsigned seed, int members, const Setting& setting)
                         pl.truth[k] = v;
                         if (setting.reportsPresetParams)
                         {
+                            s.localActivity (now);   // the host counts a reported parameter change as something done here
                             pl.cache[k] = v;
                             if (auto again = p.localValue (k, v, now))
                                 setParam (m, again->param, again->value, now);
@@ -760,10 +909,14 @@ RunResult simulate (unsigned seed, int members, const Setting& setting)
                                 TRACE ("%6.0f m%zu <- %s %s %.3f (%llu,%s) f%d\n", now, to, sender.c_str(), c.param.c_str(), c.value,
                                        (unsigned long long) c.stamp.counter, c.stamp.member.c_str(), c.flags);
                             auto applies = p.receive (sender, msg.changes, now);
+                            bool held = false;
                             for (auto& a : applies)
+                            {
                                 setParam (to, a.param, a.value, now);
+                                held = held || ! p.heldBy (a.param).empty();
+                            }
                             if (! applies.empty())
-                                s.remoteActivity (now);
+                                s.remoteActivity (now, held);
                             break;
                         }
                         case Msg::announce:

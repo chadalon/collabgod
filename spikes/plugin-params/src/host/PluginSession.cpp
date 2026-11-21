@@ -400,7 +400,7 @@ void PluginSession::applyRemote (const psync::Apply& a)
 
     logEvent ("apply", id, a.value);
     lastRemoteApplyMs = nowMs();
-    state.remoteParamChange (lastRemoteApplyMs);
+    state.remoteParamChange (lastRemoteApplyMs, ! sync.heldBy (id.toStdString()).empty());
     const juce::ScopedValueSetter<bool> svs (applyingRemote, true);
     p->ap->setParameter (a.value, juce::sendNotification);
 }

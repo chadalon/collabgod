@@ -280,6 +280,21 @@ ParamSync::Adopted ParamSync::adoptState (const Snapshot& sent, const Stamp& sta
 
         auto& p = params[name];
 
+        if (! p.heldBy.empty() && ! p.heldHere)
+        {
+            // Someone else is holding it: their values keep arriving, and the
+            // state, read while they moved it, may lag a block behind. Parameter
+            // sync settles it when they let go; put the newest known value back.
+            if (p.known && std::abs (value - p.value) > opts.epsilon)
+                out.apply.push_back ({ name, p.value });
+
+            // The sender's plugin may hold a value its host does not know about
+            // (see below): tell it, so it sets the agreed one when they let go.
+            if (silent && stateStamp.member != memberId)
+                notices.push_back ({ name, value, stateStamp, Flags::none });
+            continue;
+        }
+
         if (p.heldHere)
         {
             // Someone here is holding it: their hand wins until they let go.

@@ -12,7 +12,11 @@
 // In short (README-STATE.md, "How state sync works"):
 // - The hidden part of a plugin is one value with one owner at a time: the
 //   newest announced state wins as a whole, ordered by the same Lamport stamps
-//   as parameter changes. There is no merging inside an opaque state.
+//   as parameter changes. There is no merging inside an opaque state. A state
+//   that arrives while a change here is not yet announced replaces it: it is
+//   loaded once nobody here holds a control, and parameters changed here since
+//   its sender read it are set back on top. A knob held here stays where the
+//   hand puts it; a hidden edit here is lost (decision on #13).
 // - Parameters keep their own last-writer-wins order. A state carries its
 //   sender's parameter values and stamps from when it was read; a parameter
 //   known to be newer is put back after applying it. A parameter the state holds
@@ -113,7 +117,7 @@ struct StateStats
     std::uint64_t absorbedRemoteParams = 0;  ///< changes explained by parameters from someone else, not announced
     std::uint64_t unprompted = 0;            ///< changes found with no hint or local activity nearby
     std::uint64_t announced = 0;
-    std::uint64_t forced = 0;                ///< announced early because a newer state arrived during a local change
+    std::uint64_t replacedHere = 0;          ///< changes here not yet announced when a newer state arrived: it replaces them
     std::uint64_t received = 0;
     std::uint64_t stale = 0;                 ///< older than the newest known, ignored
     std::uint64_t matched = 0;               ///< this plugin already had it: nothing fetched
@@ -152,7 +156,7 @@ public:
         the plugin or this host changed. Makes a change found soon after "prompted". */
     void localActivity (double nowMs);
     /** Parameters or a state from someone else were applied here. */
-    void remoteActivity (double nowMs);
+    void remoteActivity (double nowMs, bool heldElsewhere = false);
 
     /** True if the host should read the state now. `pollAllowed` lets the host
         restrict polling, for example to while the plugin's window is open. */
@@ -219,7 +223,6 @@ private:
 
     struct Pending { std::string hash; std::uint64_t size; double changedMs; bool confirmed; ParamSync::Snapshot params; };
     std::optional<Pending> pending; // a local change not announced yet
-    bool force = false;             // announce it at the next flush
 
     struct Want { std::string hash, from; std::optional<double> recheckAtMs; };
     Want want;
@@ -233,6 +236,7 @@ private:
     double lastHintMs = -1.0e12;
     double lastLocalMs = -1.0e12;
     double lastRemoteMs = -1.0e12;
+    double lastRemoteLooseMs = -1.0e12;   // the last remote change to a parameter nobody was holding
     double settleUntilMs = -1.0e12;
     double appliedAtMs = -1.0e12;
     int unpromptedStreak = 0;

@@ -316,14 +316,55 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const auto announcedA = st (a).announcesSent, announcedB = st (b).announcesSent;
         setTest (a, "Test: new wavetable", 1.0f);
         setTest (b, "Test: new wavetable", 1.0f);
-        stateCheck (waitFor ([&] { return st (a).announcesSent > announcedA && st (b).announcesSent > announcedB; }, 15000),
-                    "both announce their change");
+        // Whichever announcement arrives first replaces the other's change if that
+        // one has not gone out yet; if both went out, the newer stamp wins.
+        stateCheck (waitFor ([&] { return st (a).announcesSent > announcedA || st (b).announcesSent > announcedB; }, 15000),
+                    "at least one of them announces its change");
         const bool converged = waitFor ([&] { return sameState ({ &a, &b }) && hashOf (a) != beforeA && hashOf (b) != beforeB; }, 20000);
         stateCheck (converged, "they end with the same state", hashOf (a) + " and " + hashOf (b));
         const double hz = hzOf (a, pitch);
         stateCheck (timbreDistance (timbre (a, logDir, "a-both", hz), timbre (b, logDir, "b-both", hz)) < 0.02, "and sound the same");
-        print ("STATE both at once: A forced " + juce::String ((juce::int64) a.session.getState().getSync().stats().forced)
-               + ", B forced " + juce::String ((juce::int64) b.session.getState().getSync().stats().forced));
+        print ("STATE both at once: changes replaced by the other's, on A " + juce::String ((juce::int64) a.session.getState().getSync().stats().replacedHere)
+               + ", on B " + juce::String ((juce::int64) b.session.getState().getSync().stats().replacedHere));
+    }
+
+    //==========================================================================
+    print ("\n7b. A holds a knob while B changes the hidden part (the decision on #13)");
+    {
+        // A polls, so it sees its own state change from the knob alone. That
+        // change must not be sent over B's: A keeps its knob, everything else is B's.
+        a.session.getState().detect = Detect::pollAlways;
+        pump (500);
+        const double hz = hzOf (a, pitch);
+        const auto aBefore = timbre (a, logDir, "a-before-held", hz);
+        const auto announcedA = st (a).announcesSent, appliedA = st (a).applies, appliedB = st (b).applies;
+
+        // A keeps turning Level for 3 s, a step every 20 ms, ending at 0.42.
+        const auto announcedB = st (b).announcesSent;
+        a.session.hostGestureBegin (level);
+        for (int i = 0; i <= 150; ++i)
+        {
+            a.session.hostSet (level, 0.27f + 0.001f * (float) i);
+            if (i == 15)
+                setTest (b, "Test: new wavetable", 1.0f);
+            pump (20);
+        }
+        stateCheck (st (b).announcesSent > announcedB, "B announces its change while A is still turning Level");
+        stateCheck (st (a).applies == appliedA, "A does not load B's state while it holds Level");
+        a.session.hostGestureEnd (level);
+
+        const bool loaded = waitFor ([&] { return st (a).applies > appliedA && sameState ({ &a, &b }); }, 15000);
+        pump (1000);
+        stateCheck (loaded, "once A lets go, A loads B's state and they save the same bytes", hashOf (a) + " and " + hashOf (b));
+        stateCheck (near (a.value (level), 0.42f, 1.0e-4f) && near (b.value (level), 0.42f, 1.0e-4f), "both have A's Level",
+                    "A " + juce::String (a.value (level), 4) + ", B " + juce::String (b.value (level), 4));
+        const auto ta = timbre (a, logDir, "a-after-held", hz), tb = timbre (b, logDir, "b-after-held", hz);
+        stateCheck (timbreDistance (ta, tb) < 0.02 && timbreDistance (aBefore, ta) > 0.05, "and B's wavetable",
+                    "A to B " + juce::String (timbreDistance (ta, tb), 4) + ", A before to after " + juce::String (timbreDistance (aBefore, ta), 4));
+        stateCheck (st (a).announcesSent == announcedA && st (b).applies == appliedB, "A sent no state of its own, and nothing came back to B",
+                    juce::String ((juce::int64) (st (a).announcesSent - announcedA)) + " announced by A, "
+                    + juce::String ((juce::int64) (st (b).applies - appliedB)) + " loaded by B");
+        a.session.getState().detect = Detect::hints;
     }
 
     //==========================================================================

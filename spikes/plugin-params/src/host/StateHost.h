@@ -97,7 +97,7 @@ public:
     /** The person or the plugin changed a parameter here. */
     void localParamChange (double nowMs)          { sync.localActivity (nowMs); }
     /** Parameter values from someone else were set on the plugin. */
-    void remoteParamChange (double nowMs)         { sync.remoteActivity (nowMs); }
+    void remoteParamChange (double nowMs, bool heldElsewhere) { sync.remoteActivity (nowMs, heldElsewhere); }
     /** The app's view of the plugin's window: whether a mouse button is down inside it. */
     void windowMouse (bool downInside, double nowMs);
 

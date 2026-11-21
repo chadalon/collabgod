@@ -26,7 +26,6 @@ void StateSync::loaded (const std::string& hash, std::uint64_t size)
     base = hash;
     lastHash = hash;
     pending.reset();
-    force = false;
     want = {};
     pendingApply.reset();
 }
@@ -41,7 +40,12 @@ void StateSync::hint (double nowMs)
 }
 
 void StateSync::localActivity (double nowMs)  { lastLocalMs = nowMs; }
-void StateSync::remoteActivity (double nowMs) { lastRemoteMs = nowMs; }
+void StateSync::remoteActivity (double nowMs, bool heldElsewhere)
+{
+    lastRemoteMs = nowMs;
+    if (! heldElsewhere)
+        lastRemoteLooseMs = nowMs;
+}
 
 double StateSync::pollIntervalMs() const
 {
@@ -67,7 +71,13 @@ bool StateSync::readDue (double nowMs, bool pollAllowed) const
 
 double StateSync::confirmAtMs() const
 {
-    const double lastParam = std::max (lastLocalMs, lastRemoteMs);
+    // Someone else's held control can keep moving for as long as they hold it;
+    // waiting for it would hold back a change here (a preset) until they let go,
+    // and then race their own. A held parameter is left to parameter sync on
+    // every copy that loads this state (ParamSync::adoptState), so a value the
+    // bytes are a block behind on does no harm. Loose changes from elsewhere
+    // still count.
+    const double lastParam = std::max (lastLocalMs, lastRemoteLooseMs);
     return std::max (pending ? pending->changedMs + opts.quietMs : 0.0, lastParam + opts.paramQuietMs);
 }
 
@@ -139,6 +149,23 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
         return;
     }
 
+    if (pending && hash != pending->hash && hash != base && lastRemoteMs > prevReadMs
+        && lastLocalMs <= prevReadMs && lastHintMs <= prevReadMs)
+    {
+        // The change here is still, but parameters from someone else keep moving
+        // its state (a knob they hold while this copy loaded a preset). Follow
+        // them without restarting the quiet period.
+        pending->hash = hash;
+        pending->size = size;
+
+        if (nowMs >= confirmAtMs())
+        {
+            pending->confirmed = true;
+            pending->params = params.snapshot();
+        }
+        return;
+    }
+
     if (pending)
     {
         if (hash == pending->hash)
@@ -205,8 +232,14 @@ std::optional<StateOffer> StateSync::flush (double, bool gestureHeld)
     if (! pending || gestureHeld)
         return std::nullopt;
 
-    // Only a confirmed change goes out, even when a newer state from someone
-    // else is waiting on it (force): its bytes and its parameter snapshot were
+    // A newer state from someone else is on its way or waiting to load: it
+    // replaces the hidden part here, and what was changed here in parameters is
+    // set back on top of it once it is loaded. Announcing this copy's whole
+    // state now would replace their preset with ours (decision on #13).
+    if (isWaiting())
+        return std::nullopt;
+
+    // Only a confirmed change goes out: its bytes and its parameter snapshot were
     // read together, with nothing moving. Bytes from earlier with parameters from
     // now would make whoever loads them take stale values as silent changes and
     // undo the last edit everywhere (finding 18).
@@ -215,14 +248,12 @@ std::optional<StateOffer> StateSync::flush (double, bool gestureHeld)
 
     auto p = std::move (*pending);
     pending.reset();
-    force = false;
     return announce (p.hash, p.size, std::move (p.params));
 }
 
 StateOffer StateSync::announceNow (const std::string& hash, std::uint64_t size)
 {
     pending.reset();
-    force = false;
     return announce (hash, size, params.snapshot());
 }
 
@@ -257,17 +288,13 @@ Step StateSync::receive (const std::string& from, const StateRef& ref, const std
 
     agreed = ref;
 
+    // A change here that has not gone out yet does not compete with it. If it
+    // was parameters (a knob turned, perhaps still held), they are set back on
+    // top once the newcomer is loaded, which waits until nobody here holds a
+    // control. If it was a hidden edit (an LFO shape), it is lost to the
+    // newcomer: there is no merging inside a state (decision on #13).
     if (pending)
-    {
-        // Someone else changed the state while a change here was not yet sent.
-        // The hidden part goes to one of them as a whole: ours goes out now, with
-        // a newer stamp.
-        ++counters.forced;
-        force = true;
-        want = {};
-        pendingApply.reset();
-        return {};
-    }
+        ++counters.replacedHere;
 
     if (currentHash == ref.hash)
         return matchedHere();
@@ -311,6 +338,7 @@ Step StateSync::matchedHere()
     // silently arrives as a parameter change from whoever applied them.
     ++counters.matched;
     base = agreed.hash;
+    pending.reset();
     want = {};
     pendingApply.reset();
     return {};
@@ -335,17 +363,6 @@ std::optional<std::string> StateSync::applyDue (bool gestureHeld)
     if (! pendingApply)
         return std::nullopt;
 
-    if (pending)
-    {
-        // A change was made here while the bytes were on their way. It is newer
-        // than what they hold: keep it, and send it out instead.
-        ++counters.superseded;
-        ++counters.forced;
-        force = true;
-        pendingApply.reset();
-        return std::nullopt;
-    }
-
     if (gestureHeld)
     {
         ++counters.appliedDeferred;
@@ -366,7 +383,6 @@ std::vector<Apply> StateSync::applied (const std::string& readbackHash, std::uin
 
     base = readbackHash;
     pending.reset();
-    force = false;
     // Long enough for at least two polls, so a rewrite after loading is seen inside it.
     const double poll = pollIntervalMs();
     settleUntilMs = nowMs + std::max (opts.settleMs, std::isfinite (poll) ? 2.0 * poll : 0.0);
