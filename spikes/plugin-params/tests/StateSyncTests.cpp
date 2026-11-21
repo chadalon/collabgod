@@ -101,6 +101,9 @@ void helperTests()
         std::map<std::string, float> sent { { "1", 0.5f }, { "2", 0.25f } };
         CHECK (classifyApply ("h", "old", "h", sent, sent).outcome == ApplyOutcome::exact);
         CHECK (classifyApply ("h", "old", "old", sent, { { "1", 0.1f } }).outcome == ApplyOutcome::unchanged);
+        // Finding 17: between versions, parameter sync often got there first. Not a refusal to warn about.
+        CHECK (classifyApply ("h", "old", "old", sent, sent).outcome == ApplyOutcome::alreadyHeld);
+        CHECK (classifyApply ("h", "old", "old", sent, {}).outcome == ApplyOutcome::unchanged);
         CHECK (classifyApply ("h", "old", "other", sent, sent).outcome == ApplyOutcome::resaved);
         auto r = classifyApply ("h", "old", "other", sent, { { "1", 0.5f }, { "2", 0.9f }, { "3", 0.0f } });
         CHECK (r.outcome == ApplyOutcome::paramsDiffer);
@@ -276,6 +279,73 @@ void ruleTests()
         CHECK (a.state.stats().announced == 0);
     });
 
+    test ("finding 18: a noisy state read during a drag is not announced with the parameters from after it", [] {
+        // Pro-Q 3 on the Mac: a hint during a band drag read the state halfway;
+        // the state was announced after the drag with a snapshot from the end, so
+        // whoever loaded it took the halfway values as silent changes and undid the drag.
+        Unit a ("a");
+        a.state.setNoisy (true);
+        std::map<std::string, float> held;   // what the bytes of each hash hold
+        int reads = 0;
+        auto readNow = [&] { const auto h = "n" + std::to_string (++reads); held[h] = a.values["cutoff"]; return h; };
+
+        auto move = [&] (double t, float v)
+        {
+            a.values["cutoff"] = v;
+            a.params.localValue ("cutoff", v, t);
+            a.state.localActivity (t);
+        };
+
+        a.params.localGestureBegin ("cutoff", 0.0);
+        move (0.0, 0.30f);
+        a.state.hint (0.0);
+        move (40.0, 0.25f);
+        a.state.hint (40.0);
+        bool holding = true;
+        std::optional<StateOffer> offer;
+
+        for (double t = 0.0; t <= 3000.0 && ! offer; t += 1.0)
+        {
+            if (t == 100.0)
+            {
+                move (100.0, 0.2476f);
+                a.params.localGestureEnd ("cutoff", 100.0);
+                holding = false;
+            }
+            if (a.state.readDue (t, false))
+                a.state.observed (readNow(), 10, 0.1, t);
+            offer = a.state.flush (t, holding);
+        }
+
+        CHECK (offer.has_value());
+        if (! offer)
+            return;
+        CHECK (std::abs (held[offer->ref.hash] - 0.2476f) < 1e-6f);                  // the bytes hold the end of the drag
+        CHECK (std::abs (offer->params.at ("cutoff").first - 0.2476f) < 1e-6f);    // and so does the snapshot
+
+        // Loading them elsewhere finds no silent change, so nothing is sent back over the drag.
+        Unit b ("b");
+        b.params.receive ("a", a.params.flush (3100.0), 3100.0);
+        b.values["cutoff"] = 0.2476f;
+        b.state.receive ("a", offer->ref, "h0", 3200.0);
+        b.state.recheck ("h0", 3350.0);
+        CHECK (b.state.arrived (offer->ref.hash, offer->params));
+        b.state.applyDue (false);
+        b.state.applied (offer->ref.hash, 10, 3400.0);
+        CHECK (b.state.stats().paramsDiscovered == 0);
+        CHECK (b.params.value ("cutoff") && std::abs (*b.params.value ("cutoff") - 0.2476f) < 1e-6f);
+    });
+
+    test ("a newer state from someone else does not make a change here go out before it is confirmed", [] {
+        Unit a ("a");
+        a.state.hint (0.0);
+        a.run (0.0, 50.0, "a1");
+        a.state.receive ("b", { "b1", 10, Stamp { 7, "b" } }, "a1", 60.0);
+        CHECK (! a.state.flush (61.0, false));          // read once, not yet still
+        auto out = a.run (62.0, 600.0, "a1");
+        CHECK (out && out->ref.hash == "a1" && (Stamp { 7, "b" }) < out->ref.stamp);
+    });
+
     test ("slow reads stretch the polling interval to the budget", [] {
         StateOptions o; o.pollMs = 100.0; o.pollBudget = 0.02;
         Unit a ("a", o);
@@ -292,7 +362,7 @@ void ruleTests()
         CHECK (a.state.hasLocalChange());
         StateRef theirs { "b1", 10, Stamp { 7, "b" } };
         CHECK (a.state.receive ("b", theirs, "a1", 60.0).need == Need::nothing);
-        auto out = a.state.flush (61.0, false);
+        auto out = a.run (61.0, 600.0, "a1");
         CHECK (out && out->ref.hash == "a1");
         CHECK (theirs.stamp < out->ref.stamp);
         CHECK (a.state.stats().forced == 1);
@@ -389,6 +459,7 @@ struct Setting
     double settleMs = 0.0;        // after a load, the plugin rewrites its state this much later
     double recheckMs = 150.0;
     bool measureOnly = false;     // a setting expected to lose some edits: report how often, do not fail
+    bool noisy = false;           // every save differs (a counter in the state); the host knows from loading it
 };
 
 struct SimPlugin
@@ -401,12 +472,16 @@ struct SimPlugin
     int version = 0;
     bool cached = true;                           // rewritten some time after a load
     double cacheAtMs = 0.0;
+    bool noisy = false;
+    mutable int saves = 0;
 
     std::string save() const
     {
         std::string s = "v" + std::to_string (version) + "|" + std::to_string (hidden) + "|" + (cached ? "c" : "-");
         for (auto& [k, v] : processed)
             s += "|" + k + "=" + std::to_string (v);
+        if (noisy)
+            s += "#" + std::to_string (++saves);
         return s;
     }
 };
@@ -466,8 +541,10 @@ RunResult simulate (unsigned seed, int members, const Setting& setting)
         for (auto& n : names)
             ps.back()->seed (n, 0.5f);
         ss.push_back (std::make_unique<StateSync> (*ps.back(), [&pl] { return pl.cache; }, so));
+        pl.noisy = setting.noisy;
         const auto saved = pl.save();
         ss.back()->loaded (sha (saved), saved.size());
+        ss.back()->setNoisy (setting.noisy);
         bytes[sha (saved)] = { pl.hidden, pl.processed };
     }
 
@@ -772,6 +849,7 @@ const Setting settings[] {
     { "plugins rewrite their state 400 ms after a load",     true,    true,  true,  true,   false,   0.0,  400.0 },
     { "everything at once",                                  true,    true,  true,  false,  true,    40.0, 400.0 },
     { "no recheck before fetching",                          true,    true,  true,  true,   false,   40.0, 0.0,   0.0 },
+    { "noisy plugins, read during edits (finding 18)",        true,    true,  true,  false,  false,   40.0, 0.0,   150.0, false, true },
     // Measured, not required: with only setDirty, or no signal at all, an edit
     // in the 1.5 s after a state arrives looks like the plugin settling.
     { "setDirty only",                                       true,    false, false, true,   false,   0.0,  0.0,   150.0, true },

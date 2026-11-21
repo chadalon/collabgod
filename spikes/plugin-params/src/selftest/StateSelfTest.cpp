@@ -415,12 +415,19 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         const double hzBefore = hzOf (a, pitch);
         const auto aBefore = timbre (a, logDir, "a-before-refused", hzBefore);
 
-        const auto refusedA = st (a).outcomes.count ("not loaded: the plugin's state did not change") ? st (a).outcomes.at ("not loaded: the plugin's state did not change") : 0;
+        // Version 1 refuses version 2's format. Only the wavetable changed, and no
+        // parameter shows it, so from the host this looks exactly like a load that
+        // parameter sync had already made unnecessary (finding 17): it is counted,
+        // and logged without a warning, because between versions that is the common case.
+        const juce::String held = psync::toString (psync::ApplyOutcome::alreadyHeld);
+        auto heldCount = [&] { return st (a).outcomes.count (held) ? st (a).outcomes.at (held) : (std::uint64_t) 0; };
+        const auto heldBefore = heldCount();
+        const auto warningsBefore = logA.joinIntoString ("\n").length();
         setTest (c, "Test: new wavetable", 1.0f);
-        stateCheck (waitFor ([&] { return st (a).outcomes.count ("not loaded: the plugin's state did not change") > 0
-                                          && st (a).outcomes.at ("not loaded: the plugin's state did not change") > refusedA; }, 15000),
-                    "version 1 refuses version 2's state, and A's host says so");
-        stateCheck (logA.joinIntoString ("\n").contains ("WARNING member-a: applied state"), "the warning is logged");
+        const bool classified = waitFor ([&] { return heldCount() > heldBefore; }, 15000);
+        stateCheck (classified, "version 1 does not load version 2's state, and A's host counts it as \"" + held + "\"");
+        stateCheck (! logA.joinIntoString ("\n").substring (warningsBefore).contains ("WARNING member-a: applied state"),
+                    "without a warning");
         stateCheck (timbreDistance (aBefore, timbre (a, logDir, "a-refused", hzBefore)) < 0.02,
                     "so A keeps its old wavetable while C has a new one: a version difference that breaks state sync");
     }

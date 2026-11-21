@@ -263,7 +263,10 @@ enum class ApplyOutcome : std::uint8_t
     exact,           ///< the plugin saves exactly what it was given
     resaved,         ///< it saves something else, but every parameter matches the sender's
     paramsDiffer,    ///< it took the state, but some parameters differ from the sender's: a silent difference
-    unchanged        ///< it saves what it saved before: it refused the state, or ignored it
+    unchanged,       ///< it saves what it saved before, and parameters differ from the sender's: it refused the state
+    alreadyHeld      ///< it saves what it saved before, and every parameter matches the sender's: parameter sync
+                     ///< had already brought it all (common between versions, which save the same thing differently),
+                     ///< or it refused a part no parameter shows. The host cannot tell which (finding 17)
 };
 
 struct ApplyReport

@@ -59,7 +59,7 @@ bool StateSync::readDue (double nowMs, bool pollAllowed) const
         return true;
 
     // A change waits to be seen unchanged for the quiet period before it is announced.
-    if (pending && ! pending->confirmed && ! noisy && nowMs >= confirmAtMs() && lastReadMs < confirmAtMs())
+    if (pending && ! pending->confirmed && nowMs >= confirmAtMs() && lastReadMs < confirmAtMs())
         return true;
 
     return pollAllowed && ! noisy && nowMs - lastReadMs >= pollIntervalMs();
@@ -90,13 +90,46 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
     const bool changedSinceLastRead = hash != lastHash;
     lastHash = hash;
 
+    // A change since parameters arrived from someone else is theirs, not the
+    // plugin's own: counting it made a busy session look noisy (finding 18).
+    const bool remoteSinceLastRead = lastRemoteMs > prevReadMs;
+
     if (! changedSinceLastRead)
         unpromptedStreak = 0;
-    else if (! prompted (nowMs) && nowMs >= settleUntilMs)
+    else if (! prompted (nowMs) && nowMs >= settleUntilMs && ! remoteSinceLastRead)
     {
         ++counters.unprompted;
-        if (++unpromptedStreak >= opts.noisyAfter)
+        if (++unpromptedStreak >= opts.noisyAfter && ! noisy)
+        {
+            // Those changes were the plugin's own: drop the one waiting to go out.
             noisy = true;
+            pending.reset();
+            base = hash;
+            return;
+        }
+    }
+
+    if (pending && noisy)
+    {
+        // A noisy state never reads the same twice, so stillness cannot be seen
+        // in its hash. The first read once nothing has been done here for the
+        // quiet period is announced, bytes and parameters taken together:
+        // never bytes read earlier, in the middle of an edit (finding 18).
+        if (nowMs >= confirmAtMs() && lastLocalMs <= pending->changedMs && lastHintMs <= pending->changedMs)
+        {
+            pending->hash = hash;
+            pending->size = size;
+            pending->confirmed = true;
+            pending->params = params.snapshot();
+            return;
+        }
+
+        const double lastTouch = std::max (lastLocalMs, lastHintMs);
+        pending = Pending { hash, size, std::max (pending->changedMs, std::min (lastTouch, nowMs)), false, {} };
+
+        // Its hash will differ again, so read again when the quiet period has passed.
+        readAtMs = std::max (confirmAtMs(), nowMs + opts.hintDelayMs);
+        return;
     }
 
     if (noisy && changedSinceLastRead && ! prompted (nowMs))
@@ -167,21 +200,23 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
     pending = Pending { hash, size, nowMs, false, {} };
 }
 
-std::optional<StateOffer> StateSync::flush (double nowMs, bool gestureHeld)
+std::optional<StateOffer> StateSync::flush (double, bool gestureHeld)
 {
     if (! pending || gestureHeld)
         return std::nullopt;
 
-    const bool quiet = nowMs - pending->changedMs >= opts.quietMs;
-    const bool ready = force || pending->confirmed || (noisy && quiet);
-
-    if (! ready)
+    // Only a confirmed change goes out, even when a newer state from someone
+    // else is waiting on it (force): its bytes and its parameter snapshot were
+    // read together, with nothing moving. Bytes from earlier with parameters from
+    // now would make whoever loads them take stale values as silent changes and
+    // undo the last edit everywhere (finding 18).
+    if (! pending->confirmed)
         return std::nullopt;
 
     auto p = std::move (*pending);
     pending.reset();
     force = false;
-    return announce (p.hash, p.size, p.confirmed ? std::move (p.params) : params.snapshot());
+    return announce (p.hash, p.size, std::move (p.params));
 }
 
 StateOffer StateSync::announceNow (const std::string& hash, std::uint64_t size)
@@ -663,7 +698,7 @@ ApplyReport classifyApply (const std::string& receivedHash, const std::string& h
     if (readbackHash == receivedHash)
         r.outcome = ApplyOutcome::exact;
     else if (readbackHash == hashBefore && receivedHash != hashBefore)
-        r.outcome = ApplyOutcome::unchanged;
+        r.outcome = r.differing.empty() && r.compared > 0 ? ApplyOutcome::alreadyHeld : ApplyOutcome::unchanged;
     else if (r.differing.empty())
         r.outcome = ApplyOutcome::resaved;
     else
@@ -680,6 +715,7 @@ const char* toString (ApplyOutcome o)
         case ApplyOutcome::resaved:      return "loaded, saved back differently, parameters match";
         case ApplyOutcome::paramsDiffer: return "loaded with different parameters (a silent difference)";
         case ApplyOutcome::unchanged:    return "not loaded: the plugin's state did not change";
+        case ApplyOutcome::alreadyHeld:  return "nothing changed, parameters match the sender's: already held, or a hidden part refused";
     }
     return "?";
 }
