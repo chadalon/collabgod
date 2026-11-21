@@ -1,6 +1,6 @@
-# Requirements (v0.7)
+# Requirements (v0.8)
 
-Sixty-nine requirements across nine areas. Issues refer to these IDs.
+Seventy-five requirements across ten areas. Issues refer to these IDs.
 
 Priority:
 
@@ -21,6 +21,8 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 **Audio recording is out of v1** (decided 2026-11-11, issue #6). A take recorded in another program is dragged in as an audio file and reaches the other person through the normal sample transfer. MIDI keyboard recording stays in as DAW-9. When recording is added later, a recorded take should be treated as one more audio file, so it needs nothing new from the sync layer.
 
 **Live playing** (raised 2026-11-19, #120). When someone plays an armed track, the others hear it as it happens and can play along, a little out of sync at first. v1 aims for live MIDI on instrument tracks (LIV-1 to LIV-3). Live audio input waits with recording (LIV-5), and playing tightly in time (LIV-4) and trying someone's playing through your own sound (LIV-6) are later.
+
+**Hardware and controllers** (raised 2026-11-19, #125 to #131). A pad controller or keyboard should work the moment it is plugged in, the way it does in FL Studio or Ableton, and never interrupt playback. v1 aims for controllers that play the armed track with no setup and MIDI learn for any control (HW-1 to HW-3). Ready-made profiles for known controllers, a pad-driven step sequencer and pad lights that follow the lobby are later (HW-4 to HW-6). Mappings belong to the person, not the project: moving a mapped knob makes an ordinary edit, which syncs as any other edit does.
 
 **Lobby size and identity** (decided 2026-11-12, issue #94, ADR-0006 and ADR-0007). Nothing in the protocol, the session format or the model assumes two people. The relay limits how many are connected at once, and v1 sets that to two and is tested with two. A person is a member of the project, saved in the project, and stays the same person across connections. There are no accounts in v1: identity belongs to one install of the app. Requirements below that say "both" or "the other person" describe two people, the tested case.
 
@@ -48,6 +50,17 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | LIV-4 | Live playing is fast and steady enough for people in different cities to play in time together, and each person can see their current delay. | Later |
 | LIV-5 | Live audio input, such as a voice or guitar on an armed audio track, is heard by the others, with the same mute and visuals. | Later |
 | LIV-6 | While a member plays, another can try that live playing through different presets and effects heard only by themselves, without changing the shared track, then apply what they chose to the track. | Later |
+
+## Hardware and controllers
+
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| HW-1 | Plugging in or removing a MIDI device never stops or interrupts playback. | Must |
+| HW-2 | Any class-compliant MIDI keyboard or pad controller plays the armed or selected instrument track as soon as it is connected, with no setup. Velocity, pitch bend, mod wheel and sustain work. | Should |
+| HW-3 | Any mixer control, transport control or plugin parameter can be mapped to a knob, fader, button or pad by selecting the control and moving the hardware (MIDI learn). Mappings belong to the person and their device, are kept on their own install and never enter the project or the edit log. | Should |
+| HW-4 | Known controllers are recognised and load a ready-made profile with no setup, including two-way feedback such as pad lights and displays. Profiles are files in a documented format that anyone can add. | Later |
+| HW-5 | A pad grid can drive a step sequencer and a drum layout: pads play and select drum slots, and steps are entered and shown on the pads. | Later |
+| HW-6 | Controller feedback follows the lobby: pad lights and displays show other members' edits and live playing in their colours. | Later |
 
 ## Sync
 
