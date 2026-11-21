@@ -119,7 +119,10 @@ public:
         addButton (playButton, "Play", [this] { setPlaying (! wantPlaying); });
         addButton (hostButton, "Host", [this] { startHosting(); });
         addButton (joinButton, "Join", [this] { joinHost(); });
-        addButton (sweepButton, "Host sweep 1 s", [this] { startSweep(); });
+        addButton (sweepButton, "Host sweep 1 s", [this] { startSweep (200); });
+        // For checking the decision on #13 alone at one machine: this copy holds the
+        // control for 8 s, so there is time to load a preset in the other copy.
+        addButton (holdButton, "Hold 8 s", [this] { startSweep (1600); });
         addButton (automationButton, "Add sweep automation", [this] { addAutomation(); });
         addButton (reportButton, "Save report", [this] { saveReport(); });
         addButton (peaksButton, "Reset peaks", [this] { rates.resetPeaks(); });
@@ -254,7 +257,9 @@ public:
         auto buttons = left.removeFromBottom (28);
         left.removeFromBottom (4);
         list.setBounds (left);
-        sweepButton.setBounds (buttons.removeFromLeft (130));
+        sweepButton.setBounds (buttons.removeFromLeft (120));
+        buttons.removeFromLeft (6);
+        holdButton.setBounds (buttons.removeFromLeft (80));
         buttons.removeFromLeft (6);
         automationButton.setBounds (buttons.removeFromLeft (170));
 
@@ -633,7 +638,7 @@ private:
     //==========================================================================
     // Measurements
 
-    void startSweep()
+    void startSweep (int steps)
     {
         auto* p = selectedParam();
         if (p == nullptr)
@@ -644,20 +649,22 @@ private:
 
         sweepId = p->id;
         sweepStep = 0;
+        sweepSteps = steps;
         sweepFrom = p->jp->getValue();
         sweepTo = sweepFrom < 0.5f ? 0.95f : 0.05f;
         rates.resetPeaks();
         session->hostGestureBegin (sweepId);
         sweepTimer.startTimer (5);
-        addLog ("Sweeping " + p->name + " from the host: 200 values over about a second.");
+        addLog ("Sweeping " + p->name + " from the host, held: " + juce::String (steps) + " values over about "
+                + juce::String (steps / 200) + " s, ending at " + juce::String (sweepTo, 2) + ".");
     }
 
     void sweepTick()
     {
         ++sweepStep;
-        session->hostSet (sweepId, sweepFrom + (sweepTo - sweepFrom) * (float) sweepStep / 200.0f);
+        session->hostSet (sweepId, sweepFrom + (sweepTo - sweepFrom) * (float) sweepStep / (float) sweepSteps);
 
-        if (sweepStep >= 200)
+        if (sweepStep >= sweepSteps)
         {
             sweepTimer.stopTimer();
             session->hostGestureEnd (sweepId);
@@ -895,7 +902,7 @@ private:
         count ("taken as settling after a load", y.absorbedSettling);
         count ("taken as others' parameters", y.absorbedRemoteParams);
         count ("announced", s.announcesSent);
-        count ("  early, after someone else's", y.forced);
+        count ("  changes here replaced by someone else's", y.replacedHere);
         count ("received", y.received);
         count ("  older, ignored", y.stale);
         count ("  already had it (same hash)", y.matched);
@@ -973,7 +980,7 @@ private:
     spike::Link link;
     int connections = 0;
 
-    juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, automationButton,
+    juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, holdButton, automationButton,
                      reportButton, peaksButton, markButton, sendStateButton, readStateButton;
     juce::ToggleButton muteButton, logButton, stateButton;
     juce::ComboBox detectBox;
@@ -1008,7 +1015,7 @@ private:
     SweepTimer sweepTimer { *this };
     MouseTimer mouseTimer { *this };
     juce::String sweepId;
-    int sweepStep = 0;
+    int sweepStep = 0, sweepSteps = 200;
     float sweepFrom = 0.0f, sweepTo = 0.0f;
 };
 
