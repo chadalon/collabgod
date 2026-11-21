@@ -28,6 +28,12 @@ Thumbs.db
 *.wav.tmp
 /scratch/
 
+# Reports the engine projection's dropout check and bench save where they run,
+# and recordings made with its --record
+dropout-check-*.json
+/spikes/engine-projection/bench/
+/spikes/engine-projection/ts/*.wav
+
 # Test runner output
 .vitest/
 coverage/
