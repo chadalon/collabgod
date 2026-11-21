@@ -85,6 +85,6 @@ The phases included panning and zooming across all clips, 256 extra meter levels
 
 **Issue #13, plugin state sync** (`spikes/plugin-params`, [`README-STATE.md`](../../spikes/plugin-params/README-STATE.md)): **works with a test VST3 between three members on one machine; not yet run with a real plugin.** A change to the test plugin's hidden wavetable reached the others as its saved state in about half a second, and they sounded the same; a preset that moved parameters without telling the host was found by whoever loaded it. What it means for this ADR so far:
 
-- The rules are pure and share the parameter rules' clock (ADR-0011, Proposed), so they fit the TypeScript sync client too. The C++ side reads and loads the state, hashes it, and watches for hints.
+- The rules are pure and share the parameter rules' clock (ADR-0011), so they fit the TypeScript sync client too. The C++ side reads and loads the state, hashes it, and watches for hints.
 - VST3 state calls must run on the main thread, and a large state's read or load takes long enough to be seen there (120 to 150 ms for 10.7 MiB on a 2-core cloud machine). The engine host has to read rarely and show progress when loading a large state.
 - JUCE's VST3 host wraps the state in XML with base64 (a third larger) and does not report whether the plugin accepted it. The product should keep the component and controller states as raw bytes and check a load by reading it back.
