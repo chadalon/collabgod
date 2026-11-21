@@ -16,5 +16,7 @@ These are ideas only. None is designed, estimated or scheduled, and none should 
 - **Browser DAW.** A version that runs in a tab.
 - **Web hub.** Manage songs, sample library and friends online, and post finished tracks.
 - **Voice chat** inside the lobby.
+- **Cosmetic skins.** Looks for the things other people in a lobby see, such as playheads, pointers, effects and themes. Cosmetic only, and no paid random items. Ownership would be checked by a hosted service, which needs accounts. (#106)
+- **Achievements.** Earned for making music together. Everyone earns them, and paid users claim the rewards. Needs accounts and a hosted service. (#116)
 - **More formats and platforms.** AU, CLAP and Linux.
 - **Studio One import.** Bring existing projects across, either through the open DAWproject format or by reusing the `.song` parsing in [Studio-One-File-Finder](https://github.com/chadalon/Studio-One-File-Finder).
