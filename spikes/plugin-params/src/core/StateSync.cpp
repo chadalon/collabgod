@@ -20,6 +20,12 @@ StateSync::StateSync (ParamSync& p, ReadParams rp, StateOptions o)
 {
 }
 
+bool StateSync::mayRewrite() const noexcept
+{
+    const auto s = settling();
+    return s != Settling::still;
+}
+
 void StateSync::loaded (const std::string& hash, std::uint64_t size)
 {
     agreed = { hash, size, Stamp { 0, params.member() } };
@@ -38,8 +44,17 @@ void StateSync::hint (double nowMs)
     // A plugin hints as it takes a loaded state (a restart, setDirty), and on a
     // busy machine those hints can come seconds later. While it settles, a hint
     // still schedules a read, but it is not taken as a sign of a change here.
-    if (nowMs >= settleUntilMs)
+    if (nowMs >= hintsQuietUntilMs)
+    {
         lastHintMs = nowMs;
+
+        // A hint just after values set from elsewhere is the plugin answering them
+        // (the host takes note of those values before it sets them, and hints reach
+        // it later, through the message queue). One that is not is kept apart, so
+        // the plugin's answer to the next values from elsewhere does not hide it.
+        if (nowMs - lastRemoteMs >= 50.0)
+            ownHintMs = nowMs;
+    }
     const double at = nowMs + opts.hintDelayMs;
     readAtMs = readAtMs ? std::min (*readAtMs, at) : at;
 }
@@ -83,10 +98,9 @@ bool StateSync::readDue (double nowMs, bool pollAllowed) const
 
 bool StateSync::localEvidenceSince (double t) const
 {
-    // A hint within a moment of values set from elsewhere is the plugin answering
+    // A hint within a moment after values set from elsewhere is the plugin answering
     // them (on a busy machine, the late reports of a load), not a change made here.
-    const bool hintHere = lastHintMs > t && std::abs (lastHintMs - lastRemoteMs) >= 50.0;
-    return lastLocalMs > t || hintHere;
+    return lastLocalMs > t || ownHintMs > t;
 }
 
 double StateSync::confirmAtMs() const
@@ -136,6 +150,34 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
             pending.reset();
             base = hash;
             return;
+        }
+    }
+
+    // Learning whether this plugin rewrites its state after a load: a change
+    // after a load that neither someone else's values nor a person explain.
+    if (observing && pending == std::nullopt)
+    {
+        const bool explained = lastRemoteMs > std::max (prevReadMs, appliedAtMs) || lastLocalMs > appliedAtMs;
+
+        if (hash != base && ! explained)
+        {
+            // It did: this change is its settling, and from now on it keeps the window.
+            rewrites = true;
+            observing = false;
+            ++counters.rewritesSeen;
+            ++counters.absorbedSettling;
+            base = hash;
+            return;
+        }
+        else if (nowMs >= observeUntilMs)
+        {
+            observing = false;
+            ++counters.quietLoads;
+            learnedStill = counters.quietLoads >= (std::uint64_t) opts.learnLoads;
+        }
+        else
+        {
+            readAtMs = readAtMs ? std::min (*readAtMs, observeUntilMs) : observeUntilMs;
         }
     }
 
@@ -225,7 +267,9 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
     // setDirty, or restarts, as it finishes loading: that is not a new change.
     const bool touchedSinceApply = lastLocalMs > appliedAtMs;
 
-    if (nowMs < settleUntilMs && ! touchedSinceApply)
+    // Only a plugin that rewrites its state after a load (or one not yet known
+    // not to) needs this window; for the others it would only hide edits.
+    if (nowMs < settleUntilMs && ! touchedSinceApply && mayRewrite())
     {
         // The plugin is still settling after a state from someone else.
         ++counters.absorbedSettling;
@@ -406,6 +450,18 @@ std::vector<Apply> StateSync::applied (const std::string& readbackHash, std::uin
     // Long enough for at least two polls, so a rewrite after loading is seen inside it.
     const double poll = pollIntervalMs();
     settleUntilMs = nowMs + std::max (opts.settleMs, std::isfinite (poll) ? 2.0 * poll : 0.0);
+    // Hints the plugin gives as it takes the load are not a change here. Later ones
+    // are, unless they answer values from elsewhere (see localEvidenceSince): the
+    // window that values from elsewhere extend does not reach them.
+    hintsQuietUntilMs = mayRewrite() ? settleUntilMs : nowMs + opts.hintDelayMs;
+
+    // Read once more when the window has passed, to learn whether the plugin rewrote its state.
+    if (settling() == Settling::learning)
+    {
+        observing = true;
+        observeUntilMs = settleUntilMs;
+        readAtMs = readAtMs ? std::min (*readAtMs, observeUntilMs) : observeUntilMs;
+    }
     appliedAtMs = nowMs;
     lastRemoteMs = nowMs;
 

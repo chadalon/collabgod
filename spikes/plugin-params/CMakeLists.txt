@@ -141,6 +141,13 @@ target_sources(plugin_params_spike PRIVATE
     src/selftest/SelfTest.h
     src/selftest/StateSelfTest.cpp)
 
+# Mouse buttons as the system sees them (finding 16): AppKit on macOS, JUCE elsewhere.
+if(APPLE)
+    target_sources(plugin_params_spike PRIVATE src/app/MouseButtons.h src/app/MouseButtons_mac.mm)
+else()
+    target_sources(plugin_params_spike PRIVATE src/app/MouseButtons.h src/app/MouseButtons.cpp)
+endif()
+
 target_compile_definitions(plugin_params_spike PRIVATE
     ${PLUGIN_PARAMS_DEFINITIONS}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:plugin_params_spike,JUCE_PRODUCT_NAME>"

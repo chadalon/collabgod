@@ -354,6 +354,9 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         }
         stateCheck (st (b).announcesSent > announcedB, "B announces its change while A is still turning Level");
         stateCheck (st (a).applies == appliedA, "A does not load B's state while it holds Level");
+        const auto seenByB = b.session.describeOthers().joinIntoString (" | ");
+        stateCheck (seenByB.contains ("member-a") && seenByB.contains ("turning") && seenByB.containsIgnoreCase ("level"),
+                    "B sees that A is turning Level", seenByB);
         a.session.hostGestureEnd (level);
 
         const bool loaded = waitFor ([&] { return st (a).applies > appliedA && sameState ({ &a, &b }); }, 15000);
@@ -368,6 +371,14 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
                     juce::String ((juce::int64) (st (a).announcesSent - announcedA)) + " announced by A, "
                     + juce::String ((juce::int64) (st (b).applies - appliedB)) + " loaded by B");
         a.session.getState().detect = Detect::hints;
+
+        // Presence: where A's hands are, as B sees it. Nothing is locked by it.
+        a.session.setPresence (true, true);
+        const bool pressingSeen = waitFor ([&] { return b.session.describeOthers().joinIntoString ("").contains ("pressing in its window"); }, 3000);
+        stateCheck (pressingSeen, "B sees A's plugin window open and a button pressed in it", b.session.describeOthers().joinIntoString (" | "));
+        a.session.setPresence (false, false);
+        const bool closedSeen = waitFor ([&] { return b.session.describeOthers().joinIntoString ("").contains ("window closed"); }, 3000);
+        stateCheck (closedSeen, "and then the window closed", b.session.describeOthers().joinIntoString (" | "));
     }
 
     //==========================================================================

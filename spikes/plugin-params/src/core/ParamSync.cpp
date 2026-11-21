@@ -440,4 +440,13 @@ std::string ParamSync::heldBy (const std::string& name) const
     return it != params.end() ? it->second.heldBy : std::string();
 }
 
+std::vector<std::string> ParamSync::heldByMember (const std::string& who) const
+{
+    std::vector<std::string> out;
+    for (const auto& [name, p] : params)
+        if (! who.empty() && p.heldBy == who)
+            out.push_back (name);
+    return out;
+}
+
 } // namespace psync

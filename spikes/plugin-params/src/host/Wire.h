@@ -50,6 +50,18 @@ struct Batch
     std::vector<psync::Change> changes;
 };
 
+/** What a member has up: whether its plugin's window is open, and whether a mouse
+    button pressed in that window is held now (a knob, or something hidden such as an
+    LFO shape). Which controls they hold comes with their parameter changes already.
+    Sent when it changes, and again to whoever joins. Like two people at one synth:
+    each sees where the other's hands are, and nothing is locked. */
+struct Presence
+{
+    juce::String from;
+    bool windowOpen = false;
+    bool pressing = false;
+};
+
 /** A state message. `type` is "state" (an announcement), "stateWant" (a request
     for the bytes of `hash`), "stateData" (a chunk of them) or "stateMissing". */
 struct StateMessage
@@ -67,10 +79,11 @@ juce::String encodeHello (const Hello&);
 juce::String encodeBatch (const Batch&);
 
 juce::String encodeState (const StateMessage&);
+juce::String encodePresence (const Presence&);
 
-/** Returns the message's type ("hello", "batch", or a state type) and fills the
-    matching struct. Empty if it is not one of ours. */
-juce::String decode (const juce::String& json, Hello&, Batch&, StateMessage&);
+/** Returns the message's type ("hello", "batch", "presence", or a state type) and
+    fills the matching struct. Empty if it is not one of ours. */
+juce::String decode (const juce::String& json, Hello&, Batch&, StateMessage&, Presence&);
 
 /** Compares two members' parameter lists. Returns one line per difference, or nothing if they match by ID. */
 juce::StringArray compareParams (const Hello& mine, const Hello& theirs);

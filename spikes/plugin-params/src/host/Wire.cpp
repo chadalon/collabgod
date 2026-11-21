@@ -108,10 +108,28 @@ juce::String encodeState (const StateMessage& m)
     return juce::JSON::toString (juce::var (root.release()), juce::JSON::FormatOptions{}.withSpacing (juce::JSON::Spacing::none));
 }
 
-juce::String decode (const juce::String& json, Hello& hello, Batch& batch, StateMessage& state)
+juce::String encodePresence (const Presence& p)
+{
+    juce::String out;
+    out << "{\"t\":\"presence\",\"from\":" << juce::JSON::toString (p.from)
+        << ",\"open\":" << (p.windowOpen ? "true" : "false")
+        << ",\"press\":" << (p.pressing ? "true" : "false") << "}";
+    return out;
+}
+
+juce::String decode (const juce::String& json, Hello& hello, Batch& batch, StateMessage& state, Presence& presence)
 {
     const auto v = juce::JSON::parse (json);
     const auto type = v["t"].toString();
+
+    if (type == "presence")
+    {
+        presence = {};
+        presence.from = v["from"].toString();
+        presence.windowOpen = (bool) v["open"];
+        presence.pressing = (bool) v["press"];
+        return type;
+    }
 
     if (type.startsWith ("state"))
     {

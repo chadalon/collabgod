@@ -15,6 +15,7 @@
 #include <numeric>
 
 #include "../host/Link.h"
+#include "MouseButtons.h"
 #include "../host/PluginSession.h"
 #include "../selftest/SelfTest.h"
 
@@ -171,6 +172,8 @@ public:
 
         statusLabel.setText ("Member " + member + ". Load a plugin, then host or join.", juce::dontSendNotification);
         addAndMakeVisible (statusLabel);
+        othersLabel.setTooltip ("Which plugin each other member has up, whether its window is open, and what they are touching. Nothing is locked: as at one synth, either of you can do anything.");
+        addAndMakeVisible (othersLabel);
 
         list.setModel (this);
         list.setRowHeight (24);
@@ -250,6 +253,8 @@ public:
         sendStateButton.setBounds (r3.removeFromLeft (120));
         r3.removeFromLeft (6);
         readStateButton.setBounds (r3.removeFromLeft (120));
+        r3.removeFromLeft (12);
+        othersLabel.setBounds (r3);
 
         auto left = r.removeFromLeft (r.getWidth() / 2);
         filterEditor.setBounds (left.removeFromTop (26));
@@ -495,9 +500,12 @@ private:
         state.windowOpen = pluginWindow != nullptr;
 
         if (pluginWindow == nullptr)
+        {
+            session->setPresence (false, false);
             return;
+        }
 
-        const bool down = juce::ModifierKeys::getCurrentModifiersRealtime().isAnyMouseButtonDown();
+        const bool down = cg::anyMouseButtonDown();
         const auto where = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
         const bool inside = pluginWindow->getScreenBounds().contains (where);
 
@@ -506,6 +514,7 @@ private:
             pressedInWindow = true;
 
         state.windowMouse (down && pressedInWindow, PluginSession::nowMs());
+        session->setPresence (true, down && pressedInWindow);
 
         if (! down)
             pressedInWindow = false;
@@ -697,6 +706,9 @@ private:
         statusLabel.setText ("Member " + member + ", " + juce::String (connections) + " connection(s), "
                              + juce::String ((int) session->getPeers().size()) + " other member(s)"
                              + (session->getEdit().getTransport().isPlaying() ? ", playing" : ""),
+                             juce::dontSendNotification);
+        const auto others = session->describeOthers();
+        othersLabel.setText (others.isEmpty() ? juce::String ("Nobody else here") : others.joinIntoString ("   |   "),
                              juce::dontSendNotification);
         setTextKeepingScroll (statsView, shownStats());
     }
@@ -998,7 +1010,7 @@ private:
     int stepNumber = 0;
     juce::int64 logLinesAdded = 0, markLogLines = 0;
     juce::ComboBox throttleBox, echoBox;
-    juce::Label statusLabel;
+    juce::Label statusLabel, othersLabel;
     juce::ListBox list;
     std::vector<size_t> visible;
     juce::StringArray logLines;

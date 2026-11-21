@@ -99,6 +99,14 @@ public:
 
     const Hello& getHello() const                   { return hello; }
     const std::map<juce::String, Hello>& getPeers() const { return peers; }
+
+    /** Where this member's hands are: the plugin window open, a button pressed in it.
+        Sent to the others when it changes. */
+    void setPresence (bool windowOpen, bool pressing);
+    const std::map<juce::String, Presence>& getPresence() const { return presence; }
+    /** One line per other member: which plugin they have up, whether its window is
+        open, and what they are touching in it. */
+    juce::StringArray describeOthers() const;
     /** The differences found with each peer's parameter list, by member. */
     const std::map<juce::String, juce::StringArray>& getMismatches() const { return mismatches; }
 
@@ -153,6 +161,9 @@ private:
     double lastRemoteApplyMs = -1.0e12;
     Hello hello;
     std::map<juce::String, Hello> peers;
+    std::map<juce::String, Presence> presence;
+    Presence ownPresence;
+    void sendPresence();
     std::map<juce::String, juce::StringArray> mismatches;
     std::set<juce::String> unknownIdsLogged;
 

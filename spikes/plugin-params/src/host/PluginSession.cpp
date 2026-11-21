@@ -438,7 +438,15 @@ void PluginSession::receive (const juce::String& message)
     Hello h;
     Batch b;
     StateMessage sm;
-    const auto type = decode (message, h, b, sm);
+    Presence pr;
+    const auto type = decode (message, h, b, sm, pr);
+
+    if (type == "presence")
+    {
+        if (pr.from != member)
+            presence[pr.from] = pr;
+        return;
+    }
 
     if (type.startsWith ("state"))
     {
@@ -474,6 +482,7 @@ void PluginSession::receive (const juce::String& message)
         if (isNew)
         {
             sendHello();
+            sendPresence();
             if (h.plugin.uid == hello.plugin.uid)
                 state.peerJoined (nowMs());
         }
@@ -513,6 +522,60 @@ void PluginSession::peersLeft()
 
     peers.clear();
     mismatches.clear();
+    presence.clear();
+}
+
+void PluginSession::setPresence (bool windowOpen, bool pressing)
+{
+    if (ownPresence.windowOpen == windowOpen && ownPresence.pressing == pressing)
+        return;
+
+    ownPresence.windowOpen = windowOpen;
+    ownPresence.pressing = pressing;
+    sendPresence();
+}
+
+void PluginSession::sendPresence()
+{
+    ownPresence.from = member;
+    if (send)
+        send (encodePresence (ownPresence));
+}
+
+juce::StringArray PluginSession::describeOthers() const
+{
+    juce::StringArray lines;
+
+    for (const auto& [who, h] : peers)
+    {
+        juce::String line = who + ": " + h.plugin.name;
+
+        if (h.plugin.uid != hello.plugin.uid)
+        {
+            lines.add (line + " (a different plugin)");
+            continue;
+        }
+
+        const auto p = presence.find (who);
+        const bool open = p != presence.end() && p->second.windowOpen;
+        line << (open ? ", window open" : ", window closed");
+
+        juce::StringArray touching;
+        for (const auto& id : sync.heldByMember (who.toStdString()))
+        {
+            const auto it = byId.find (juce::String (id));
+            touching.add (it != byId.end() ? params[it->second].name : juce::String (id));
+        }
+
+        if (! touching.isEmpty())
+            line << ", turning " << touching.joinIntoString (", ");
+        else if (p != presence.end() && p->second.pressing)
+            line << ", pressing in its window";
+
+        lines.add (line);
+    }
+
+    return lines;
 }
 
 SessionStats PluginSession::getStats() const

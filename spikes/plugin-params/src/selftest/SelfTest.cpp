@@ -89,7 +89,8 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         }
         spike::Hello h;
         spike::StateMessage sm;
-        spike::decode (spike::encodeBatch (out), h, in, sm);
+        spike::Presence pr;
+        spike::decode (spike::encodeBatch (out), h, in, sm, pr);
         int exact = 0;
         for (size_t i = 0; i < in.changes.size() && i < out.changes.size(); ++i)
             exact += in.changes[i].value == out.changes[i].value ? 1 : 0;

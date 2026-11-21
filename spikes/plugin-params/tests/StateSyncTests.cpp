@@ -240,6 +240,48 @@ void ruleTests()
         CHECK (out && out->ref.hash == "h1-edited");
     });
 
+    test ("each copy learns whether its plugin rewrites its state after a load", [] {
+        // Loads states from "a" one after another; `rewrite` makes the plugin change its state by itself after each.
+        auto loadFrom = [] (Unit& b, int i, bool rewrite) {
+            const double t0 = 10000.0 * i;
+            const auto h = "s" + std::to_string (i);
+            b.state.receive ("a", { h, 10, Stamp { (std::uint64_t) (100 + i), "a" } }, b.state.baseline(), t0);
+            b.state.recheck (b.state.baseline(), t0 + 150.0);
+            b.state.arrived (h, {});
+            b.state.applyDue (false);
+            b.state.applied (h, 10, t0 + 200.0);
+            b.run (t0 + 200.0, t0 + 5000.0, rewrite ? h + "-settled" : h);
+        };
+
+        StateOptions learn; learn.learnSettling = true;
+        CHECK (Unit ("b").state.settling() == StateSync::Settling::off);   // a host that sees the mouse does not need it
+        Unit still ("b", learn);
+        CHECK (still.state.settling() == StateSync::Settling::learning);
+        for (int i = 1; i <= 3; ++i)
+            loadFrom (still, i, false);
+        CHECK (still.state.settling() == StateSync::Settling::still);
+        CHECK (still.state.stats().quietLoads == 3);
+
+        // Now an edit straight after a load, with only setDirty to show for it, is not taken for settling.
+        loadFrom (still, 4, false);
+        still.state.hint (40300.0);
+        auto out = still.run (40300.0, 41000.0, "s4-edited");
+        CHECK (out && out->ref.hash == "s4-edited");
+        CHECK (still.state.stats().absorbedSettling == 0);
+
+        Unit settles ("b", learn);
+        loadFrom (settles, 1, true);
+        CHECK (settles.state.settling() == StateSync::Settling::rewrites);
+        CHECK (settles.state.stats().rewritesSeen == 1);
+        CHECK (settles.state.stats().absorbedSettling == 1);
+        CHECK (settles.state.stats().announced == 0);   // its settling went nowhere
+
+        // What an earlier session learned is not learned again.
+        StateOptions o = learn; o.knownRewrites = 0;
+        Unit known ("b", o);
+        CHECK (known.state.settling() == StateSync::Settling::still);
+    });
+
     test ("bytes that arrive after a newer announcement are dropped", [] {
         Unit b ("b");
         b.state.receive ("a", { "h1", 10, Stamp { 5, "a" } }, "h0", 0.0);
@@ -608,6 +650,7 @@ struct Setting
     double recheckMs = 150.0;
     bool measureOnly = false;     // a setting expected to lose some edits: report how often, do not fail
     bool noisy = false;           // every save differs (a counter in the state); the host knows from loading it
+    int knownRewrites = -1;       // what an earlier session learned about the plugin settling after loads
 };
 
 struct SimPlugin
@@ -677,6 +720,8 @@ RunResult simulate (unsigned seed, int members, const Setting& setting)
     StateOptions so;
     so.pollMs = setting.poll ? 100.0 : 0.0;
     so.recheckMs = setting.recheckMs;
+    so.knownRewrites = setting.knownRewrites;
+    so.learnSettling = ! setting.window;   // only a host that cannot see the mouse in the window learns it
 
     for (std::size_t m = 0; m < M; ++m)
     {
@@ -836,7 +881,14 @@ RunResult simulate (unsigned seed, int members, const Setting& setting)
             }
 
             if (s.readDue (now, setting.poll))
-                s.observed (readState (m), 10, 0.2, now);
+            {
+                const auto h = readState (m);
+                s.observed (h, 10, 0.2, now);
+                const auto& c = s.stats();
+                TRACE ("%6.0f m%zu read %s local=%llu remote=%llu settle=%llu pending=%d\n", now, m, h.substr (0, 6).c_str(),
+                       (unsigned long long) c.localChanges, (unsigned long long) c.absorbedRemoteParams,
+                       (unsigned long long) c.absorbedSettling, (int) s.hasLocalChange());
+            }
 
             if (s.recheckDue (now))
             {
@@ -1007,6 +1059,12 @@ const Setting settings[] {
     // in the 1.5 s after a state arrives looks like the plugin settling.
     { "setDirty only",                                       true,    false, false, true,   false,   0.0,  0.0,   150.0, true },
     { "no signal at all, polling",                           false,   false, true,  true,   false,   0.0,  0.0,   150.0, true },
+    // The same, with what an earlier session learned: this plugin does not rewrite its
+    // state after a load, so no change after a load is taken for settling.
+    { "setDirty only, settling learned",                     true,    false, false, true,   false,   0.0,  0.0,   150.0, true, false, 0 },
+    { "no signal at all, polling, settling learned",         false,   false, true,  true,   false,   0.0,  0.0,   150.0, true, false, 0 },
+    // A plugin learned to rewrite after loads keeps the window, and must still agree.
+    { "plugins rewrite after a load, learned",               true,    true,  true,  true,   false,   0.0,  400.0, 150.0, false, false, 1 },
 };
 
 void convergenceTests (int seeds)
@@ -1036,7 +1094,11 @@ void convergenceTests (int seeds)
                     }
 
                     if (! r.converged)
+                    {
                         ++diverged;
+                        if (std::getenv ("SHOW_LOST") != nullptr)
+                            std::printf ("  lost, seed %d: %s\n", seed, r.detail.c_str());
+                    }
                 }
 
                 if (s.measureOnly)

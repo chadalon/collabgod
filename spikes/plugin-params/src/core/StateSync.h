@@ -67,6 +67,17 @@ struct StateOptions
     /** After applying another member's state, changes are taken as the plugin settling for this long
         (or two polling intervals, if longer), unless a person does something here first. */
     double settleMs = 1500.0;
+    /** For a host that cannot see a person in the plugin's window (no mouse let go to go by): each copy
+        learns whether its plugin rewrites its state after a load. Until learnLoads loads have passed without
+        a rewrite, changes while settling are absorbed; after that, only for a plugin seen rewriting, so a
+        plugin that never rewrites has no window in which an edit can be taken for settling.
+        Off where the host sees the mouse in the window: there a person's edit is never taken for settling
+        anyway, and a plugin that rewrites after some presets but not others would only bounce its state. */
+    bool learnSettling = false;
+    int learnLoads = 3;
+    /** What an earlier session learned about this plugin (the app keeps it per plugin), so a new
+        session does not start learning again: -1 not known, 0 does not rewrite, 1 rewrites. */
+    int knownRewrites = -1;
     /** A member whose state differs from an announced one reads it once more after this long before fetching,
         because a parameter set from elsewhere reaches some plugins' saved state only once they process audio. 0 fetches at once. */
     double recheckMs = 150.0;
@@ -127,6 +138,8 @@ struct StateStats
     std::uint64_t applied = 0;
     std::uint64_t appliedDeferred = 0;       ///< applies held back while a control was held here
     std::uint64_t readbackDiffers = 0;       ///< applied states the plugin saved back differently
+    std::uint64_t rewritesSeen = 0;          ///< loads after which the plugin changed its state by itself
+    std::uint64_t quietLoads = 0;            ///< loads after which it did not
     std::uint64_t paramsPutBack = 0;         ///< parameters set again after a state carried an older value
     std::uint64_t paramsDiscovered = 0;      ///< parameters a state changed without its sender knowing, sent on
 };
@@ -139,6 +152,8 @@ public:
     /** `params` is the member's parameter sync, which shares the clock. `readParams`
         returns what the plugin holds now, by parameter ID. */
     StateSync (ParamSync& params, ReadParams readParams, StateOptions = {});
+    /** Whether changes right after a load may be the plugin settling rather than a person. */
+    bool mayRewrite() const noexcept;
 
     const StateOptions& options() const noexcept { return opts; }
     void setOptions (StateOptions o)             { opts = o; }
@@ -202,6 +217,16 @@ public:
     const Stamp& agreedStamp() const noexcept      { return agreed.stamp; }
     const std::string& agreedHash() const noexcept { return agreed.hash; }
     bool isNoisy() const noexcept                  { return noisy; }
+    /** What has been learned about this plugin after loads: still learning, settles (rewrites its state), or does not. */
+    enum class Settling { off, learning, rewrites, still };
+    Settling settling() const noexcept
+    {
+        if (! opts.learnSettling)
+            return Settling::off;
+        if (rewrites || opts.knownRewrites == 1)
+            return Settling::rewrites;
+        return learnedStill || opts.knownRewrites == 0 ? Settling::still : Settling::learning;
+    }
     void setNoisy (bool n) noexcept                { noisy = n; }
     bool hasLocalChange() const noexcept           { return pending.has_value(); }
     bool isWaiting() const noexcept                { return ! want.hash.empty() || pendingApply.has_value(); }
@@ -235,10 +260,16 @@ private:
     std::string lastHash;
     double prevReadMs = -1.0e12;
     double lastHintMs = -1.0e12;
+    double hintsQuietUntilMs = -1.0e12;    // hints until then are the plugin taking a load
+    double ownHintMs = -1.0e12;            // the last hint not within a moment of values from elsewhere
     double lastLocalMs = -1.0e12;
     double lastRemoteMs = -1.0e12;
     double lastRemoteLooseMs = -1.0e12;   // the last remote change to a parameter nobody was holding
     double settleUntilMs = -1.0e12;
+    bool learnedStill = false;             // seen often enough not to rewrite (or known from an earlier session)
+    bool rewrites = false;                 // this plugin has been seen changing its state by itself after a load
+    bool observing = false;                // watching for that after the last load
+    double observeUntilMs = -1.0e12;
     double appliedAtMs = -1.0e12;
     int unpromptedStreak = 0;
     bool noisy = false;

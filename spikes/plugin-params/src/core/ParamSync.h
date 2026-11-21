@@ -190,6 +190,8 @@ public:
     bool anyHeldHere() const;
     /** Who else holds the control right now, or empty. */
     std::string heldBy (const std::string& param) const;
+    /** The controls another member holds right now, from their gesture flags. */
+    std::vector<std::string> heldByMember (const std::string& member) const;
     const Stats& stats() const noexcept      { return counters; }
 
 private:
