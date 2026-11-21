@@ -1,0 +1,1138 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Spike for issue #13. Tests for the state sync rules in src/core, with no JUCE,
+// engine or network: a simulated clock, simulated plugins and a simulated relay.
+//
+//   state_sync_tests            run everything
+//   state_sync_tests --seeds N  run the random convergence test with N seeds per setting
+//   state_sync_tests --trace <seed> <members> <setting>   print one run
+
+#include "../src/core/StateSync.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <functional>
+#include <map>
+#include <memory>
+#include <random>
+#include <string>
+#include <variant>
+#include <vector>
+
+using namespace psync;
+
+namespace
+{
+int failures = 0;
+int checks = 0;
+const char* currentTest = "";
+
+#define CHECK(cond)                                                                       \
+    do {                                                                                  \
+        ++checks;                                                                         \
+        if (! (cond)) {                                                                   \
+            ++failures;                                                                   \
+            std::printf ("FAIL %s: %s (line %d)\n", currentTest, #cond, __LINE__);        \
+        }                                                                                 \
+    } while (false)
+
+void test (const char* name, const std::function<void()>& body)
+{
+    currentTest = name;
+    const int before = failures;
+    body();
+    std::printf ("%s %s\n", failures == before ? "ok  " : "FAIL", name);
+}
+
+std::string sha (const std::string& s) { return sha256Hex (s.data(), s.size()); }
+
+//==============================================================================
+void helperTests()
+{
+    test ("SHA-256 matches the FIPS 180-4 examples", [] {
+        CHECK (sha ("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        CHECK (sha ("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        CHECK (sha ("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+               == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+        CHECK (sha (std::string (1000000, 'a')) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+        // Lengths around the padding boundary.
+        CHECK (sha (std::string (55, 'x')) != sha (std::string (56, 'x')));
+        CHECK (sha (std::string (64, 'x')).size() == 64);
+    });
+
+    test ("paths are found in 8-bit and UTF-16 text, and nothing in noise", [] {
+        using namespace std::string_literals;
+        std::string blob = "junk\x01\x02<sample path=\"C:\\Users\\chad\\Samples\\Kick 01.wav\"/>\x00\x05"s
+                           "/Users/chad/Music/Serum Presets/Tables/Growl.wav\x00more"s
+                           "name=Bass.SerumPreset;\x00\x00"s;
+        const std::string wide = "D:\\Libraries\\Strings\\Violin.nki";
+        for (char c : wide) { blob.push_back (c); blob.push_back ('\0'); }
+        blob += "\0\0"s;
+
+        blob += "x=/var/folders/ab/T/collabgod-test-synth/sample-1f.wav\x00"s;
+
+        auto found = findPathLikeStrings (blob.data(), blob.size());
+        auto has = [&] (const std::string& s) { return std::find (found.begin(), found.end(), s) != found.end(); };
+        CHECK (has ("C:\\Users\\chad\\Samples\\Kick 01.wav"));
+        CHECK (has ("/Users/chad/Music/Serum Presets/Tables/Growl.wav"));
+        CHECK (has ("Bass.SerumPreset"));
+        CHECK (has ("D:\\Libraries\\Strings\\Violin.nki"));
+        CHECK (has ("/var/folders/ab/T/collabgod-test-synth/sample-1f.wav"));
+        CHECK (found.size() == 5);
+
+        std::mt19937 rng (5);
+        std::string noise (1 << 16, '\0');
+        for (auto& c : noise) c = (char) (rng() & 0xff);
+        CHECK (findPathLikeStrings (noise.data(), noise.size()).empty());
+    });
+
+    test ("a home folder is replaced with ~ in reports", [] {
+        CHECK (redactHome ("C:\\Users\\chad\\Samples\\Kick.wav") == "~\\Samples\\Kick.wav");
+        CHECK (redactHome ("c:/users/chad/x.wav") == "~/x.wav");
+        CHECK (redactHome ("/Users/chad/Music/a.wav") == "~/Music/a.wav");
+        CHECK (redactHome ("/home/someone/a.wav") == "~/a.wav");
+        CHECK (redactHome ("D:\\Libraries\\a.nki") == "D:\\Libraries\\a.nki");
+    });
+
+    test ("an apply is classified from the hashes and the parameters", [] {
+        std::map<std::string, float> sent { { "1", 0.5f }, { "2", 0.25f } };
+        CHECK (classifyApply ("h", "old", "h", sent, sent).outcome == ApplyOutcome::exact);
+        CHECK (classifyApply ("h", "old", "old", sent, { { "1", 0.1f } }).outcome == ApplyOutcome::unchanged);
+        // Finding 17: between versions, parameter sync often got there first. Not a refusal to warn about.
+        CHECK (classifyApply ("h", "old", "old", sent, sent).outcome == ApplyOutcome::alreadyHeld);
+        CHECK (classifyApply ("h", "old", "old", sent, {}).outcome == ApplyOutcome::unchanged);
+        CHECK (classifyApply ("h", "old", "other", sent, sent).outcome == ApplyOutcome::resaved);
+        auto r = classifyApply ("h", "old", "other", sent, { { "1", 0.5f }, { "2", 0.9f }, { "3", 0.0f } });
+        CHECK (r.outcome == ApplyOutcome::paramsDiffer);
+        CHECK (r.differing.size() == 1 && r.differing[0] == "2");
+        CHECK (r.compared == 2);
+    });
+}
+
+//==============================================================================
+// One member's rules with a plugin held in a map, for the unit tests.
+struct Unit
+{
+    explicit Unit (const std::string& id, StateOptions o = {})
+        : params (id, quick()), state (params, [this] { return values; }, o)
+    {
+        for (auto& [k, v] : values)
+            params.seed (k, v);
+        state.loaded ("h0", 10);
+    }
+
+    static Options quick() { Options o; o.flushIntervalMs = 0.0; return o; }
+
+    std::map<std::string, float> values { { "cutoff", 0.5f }, { "res", 0.5f } };
+    ParamSync params;
+    StateSync state;
+
+    /** Runs reads and flushes from `from` to `to` ms with hash `h`; returns the first announcement. */
+    std::optional<StateOffer> run (double from, double to, const std::string& h, bool poll = false, bool held = false)
+    {
+        for (double t = from; t <= to; t += 1.0)
+        {
+            if (state.readDue (t, poll))
+                state.observed (h, 10, 0.1, t);
+            if (auto a = state.flush (t, held))
+                return a;
+        }
+        return std::nullopt;
+    }
+};
+
+void ruleTests()
+{
+    test ("a hinted change is announced once the state has been read unchanged for the quiet period", [] {
+        Unit a ("a");
+        a.state.hint (0.0);
+        auto out = a.run (0.0, 250.0, "h1");
+        CHECK (! out);   // seen at 30 ms, not yet quiet
+        out = a.run (251.0, 400.0, "h1");
+        CHECK (out && out->ref.hash == "h1" && out->ref.stamp.member == "a" && out->ref.stamp.counter > 0);
+        CHECK (! a.run (401.0, 2000.0, "h1"));
+        CHECK (a.state.stats().announced == 1);
+        CHECK (a.state.baseline() == "h1");
+    });
+
+    test ("a change the plugin does not hint at is found only by polling", [] {
+        StateOptions o; o.pollMs = 100.0;
+        Unit quiet ("a"), polled ("b", o);
+        CHECK (! quiet.run (0.0, 3000.0, "h1"));
+        polled.state.localActivity (0.0);
+        auto out = polled.run (0.0, 3000.0, "h1", true);
+        CHECK (out && out->ref.hash == "h1");
+    });
+
+    test ("a state that keeps changing is announced when it stops, and not while a control is held", [] {
+        Unit a ("a");
+        for (int i = 0; i < 10; ++i)
+        {
+            a.state.hint (i * 100.0);
+            CHECK (! a.run (i * 100.0, i * 100.0 + 99.0, "h" + std::to_string (i + 1)));
+        }
+        CHECK (! a.run (1000.0, 3000.0, "h10", false, true));
+        auto out = a.run (3001.0, 3100.0, "h10");
+        CHECK (out && out->ref.hash == "h10");
+        CHECK (a.state.stats().announced == 1);
+    });
+
+    test ("a member whose plugin already saves the announced hash fetches nothing", [] {
+        Unit a ("a"), b ("b");
+        StateRef ref { "h1", 10, a.params.issueStamp() };
+        auto step = b.state.receive ("a", ref, "h1", 0.0);
+        CHECK (step.need == Need::nothing);
+        CHECK (b.state.stats().matched == 1);
+        CHECK (b.state.baseline() == "h1");
+        CHECK (b.state.agreedStamp() == ref.stamp);
+    });
+
+    test ("a member with a different state reads again, then fetches; or matches on the second read", [] {
+        Unit b ("b"), c ("c");
+        StateRef ref { "h1", 10, Stamp { 5, "a" } };
+        auto step = b.state.receive ("a", ref, "h0", 0.0);
+        CHECK (step.need == Need::recheck);
+        CHECK (! b.state.recheckDue (100.0));
+        CHECK (b.state.recheckDue (150.0));
+        step = b.state.recheck ("h0", 150.0);
+        CHECK (step.need == Need::fetch && step.hash == "h1" && step.from == "a");
+
+        c.state.receive ("a", ref, "h0", 0.0);
+        step = c.state.recheck ("h1", 150.0);
+        CHECK (step.need == Need::nothing);
+        CHECK (c.state.stats().matched == 1);
+    });
+
+    test ("an older announcement is ignored", [] {
+        Unit b ("b");
+        b.state.receive ("a", { "h2", 10, Stamp { 9, "a" } }, "h2", 0.0);
+        auto step = b.state.receive ("c", { "h1", 10, Stamp { 4, "c" } }, "h2", 1.0);
+        CHECK (step.need == Need::nothing);
+        CHECK (b.state.stats().stale == 1);
+        CHECK (b.state.agreedHash() == "h2");
+    });
+
+    test ("bytes are applied once nobody here holds a control, and the plugin settling is not announced", [] {
+        Unit b ("b");
+        b.state.receive ("a", { "h1", 10, Stamp { 5, "a" } }, "h0", 0.0);
+        b.state.recheck ("h0", 150.0);
+        CHECK (b.state.arrived ("h1", {}));
+        CHECK (! b.state.applyDue (true));
+        CHECK (b.state.stats().appliedDeferred == 1);
+        auto h = b.state.applyDue (false);
+        CHECK (h && *h == "h1");
+        b.state.applied ("h1", 10, 200.0);
+        CHECK (b.state.baseline() == "h1");
+
+        // The plugin rewrites its state as it settles (a background load), and says so.
+        b.state.hint (300.0);
+        CHECK (! b.run (300.0, 1000.0, "h1-settled"));
+        CHECK (b.state.stats().absorbedSettling == 1);
+        CHECK (b.state.baseline() == "h1-settled");
+
+        // A person editing straight after is not the plugin settling.
+        b.state.localActivity (1100.0);
+        b.state.hint (1100.0);
+        auto out = b.run (1100.0, 1600.0, "h1-edited");
+        CHECK (out && out->ref.hash == "h1-edited");
+    });
+
+    test ("each copy learns whether its plugin rewrites its state after a load", [] {
+        // Loads states from "a" one after another; `rewrite` makes the plugin change its state by itself after each.
+        auto loadFrom = [] (Unit& b, int i, bool rewrite) {
+            const double t0 = 10000.0 * i;
+            const auto h = "s" + std::to_string (i);
+            b.state.receive ("a", { h, 10, Stamp { (std::uint64_t) (100 + i), "a" } }, b.state.baseline(), t0);
+            b.state.recheck (b.state.baseline(), t0 + 150.0);
+            b.state.arrived (h, {});
+            b.state.applyDue (false);
+            b.state.applied (h, 10, t0 + 200.0);
+            b.run (t0 + 200.0, t0 + 5000.0, rewrite ? h + "-settled" : h);
+        };
+
+        StateOptions learn; learn.learnSettling = true;
+        CHECK (Unit ("b").state.settling() == StateSync::Settling::off);   // a host that sees the mouse does not need it
+        Unit still ("b", learn);
+        CHECK (still.state.settling() == StateSync::Settling::learning);
+        for (int i = 1; i <= 3; ++i)
+            loadFrom (still, i, false);
+        CHECK (still.state.settling() == StateSync::Settling::still);
+        CHECK (still.state.stats().quietLoads == 3);
+
+        // Now an edit straight after a load, with only setDirty to show for it, is not taken for settling.
+        loadFrom (still, 4, false);
+        still.state.hint (40300.0);
+        auto out = still.run (40300.0, 41000.0, "s4-edited");
+        CHECK (out && out->ref.hash == "s4-edited");
+        CHECK (still.state.stats().absorbedSettling == 0);
+
+        Unit settles ("b", learn);
+        loadFrom (settles, 1, true);
+        CHECK (settles.state.settling() == StateSync::Settling::rewrites);
+        CHECK (settles.state.stats().rewritesSeen == 1);
+        CHECK (settles.state.stats().absorbedSettling == 1);
+        CHECK (settles.state.stats().announced == 0);   // its settling went nowhere
+
+        // What an earlier session learned is not learned again.
+        StateOptions o = learn; o.knownRewrites = 0;
+        Unit known ("b", o);
+        CHECK (known.state.settling() == StateSync::Settling::still);
+    });
+
+    test ("bytes that arrive after a newer announcement are dropped", [] {
+        Unit b ("b");
+        b.state.receive ("a", { "h1", 10, Stamp { 5, "a" } }, "h0", 0.0);
+        b.state.recheck ("h0", 150.0);
+        b.state.receive ("c", { "h2", 10, Stamp { 6, "c" } }, "h0", 160.0);
+        CHECK (! b.state.arrived ("h1", {}));
+        CHECK (b.state.stats().superseded == 1);
+    });
+
+    test ("a change right after parameters from someone else, with nothing done here, is not announced", [] {
+        StateOptions o; o.pollMs = 100.0;
+        Unit b ("b", o);
+        b.run (0.0, 150.0, "h0", true);
+        b.state.remoteActivity (160.0);
+        CHECK (! b.run (151.0, 3000.0, "h0+remote-knob", true));
+        CHECK (b.state.stats().absorbedRemoteParams == 1);
+
+        // The same with a hint from the plugin: that is a change made here.
+        b.state.remoteActivity (3010.0);
+        b.state.hint (3100.0);   // not within a moment of the remote values: within 50 ms it would be the plugin answering them
+        auto out = b.run (3001.0, 4000.0, "h0+lfo", true);
+        CHECK (out && out->ref.hash == "h0+lfo");
+    });
+
+    test ("a state that changes on every read with nothing done here is marked noisy, and polling stops", [] {
+        StateOptions o; o.pollMs = 50.0; o.noisyAfter = 4; o.promptMs = 100.0;
+        Unit a ("a", o);
+        int reads = 0;
+        for (double t = 1000.0; t < 3000.0; t += 1.0)
+        {
+            if (a.state.readDue (t, true))
+                a.state.observed ("n" + std::to_string (++reads), 10, 0.1, t);
+            a.state.flush (t, false);
+        }
+        CHECK (a.state.isNoisy());
+        CHECK (reads < 10);
+        CHECK (a.state.stats().announced == 0);
+    });
+
+    test ("finding 18: a noisy state read during a drag is not announced with the parameters from after it", [] {
+        // Pro-Q 3 on the Mac: a hint during a band drag read the state halfway;
+        // the state was announced after the drag with a snapshot from the end, so
+        // whoever loaded it took the halfway values as silent changes and undid the drag.
+        Unit a ("a");
+        a.state.setNoisy (true);
+        std::map<std::string, float> held;   // what the bytes of each hash hold
+        int reads = 0;
+        auto readNow = [&] { const auto h = "n" + std::to_string (++reads); held[h] = a.values["cutoff"]; return h; };
+
+        auto move = [&] (double t, float v)
+        {
+            a.values["cutoff"] = v;
+            a.params.localValue ("cutoff", v, t);
+            a.state.localActivity (t);
+        };
+
+        a.params.localGestureBegin ("cutoff", 0.0);
+        move (0.0, 0.30f);
+        a.state.hint (0.0);
+        move (40.0, 0.25f);
+        a.state.hint (40.0);
+        bool holding = true;
+        std::optional<StateOffer> offer;
+
+        for (double t = 0.0; t <= 3000.0 && ! offer; t += 1.0)
+        {
+            if (t == 100.0)
+            {
+                move (100.0, 0.2476f);
+                a.params.localGestureEnd ("cutoff", 100.0);
+                holding = false;
+            }
+            if (a.state.readDue (t, false))
+                a.state.observed (readNow(), 10, 0.1, t);
+            offer = a.state.flush (t, holding);
+        }
+
+        CHECK (offer.has_value());
+        if (! offer)
+            return;
+        CHECK (std::abs (held[offer->ref.hash] - 0.2476f) < 1e-6f);                  // the bytes hold the end of the drag
+        CHECK (std::abs (offer->params.at ("cutoff").first - 0.2476f) < 1e-6f);    // and so does the snapshot
+
+        // Loading them elsewhere finds no silent change, so nothing is sent back over the drag.
+        Unit b ("b");
+        b.params.receive ("a", a.params.flush (3100.0), 3100.0);
+        b.values["cutoff"] = 0.2476f;
+        b.state.receive ("a", offer->ref, "h0", 3200.0);
+        b.state.recheck ("h0", 3350.0);
+        CHECK (b.state.arrived (offer->ref.hash, offer->params));
+        b.state.applyDue (false);
+        b.state.applied (offer->ref.hash, 10, 3400.0);
+        CHECK (b.state.stats().paramsDiscovered == 0);
+        CHECK (b.params.value ("cutoff") && std::abs (*b.params.value ("cutoff") - 0.2476f) < 1e-6f);
+    });
+
+    test ("slow reads stretch the polling interval to the budget", [] {
+        StateOptions o; o.pollMs = 100.0; o.pollBudget = 0.02;
+        Unit a ("a", o);
+        a.state.observed ("h0", 10, 20.0, 0.0);   // a 20 ms read: at 2 %, once a second
+        CHECK (std::abs (a.state.pollIntervalMs() - 1000.0) < 1.0e-6);
+        CHECK (! a.state.readDue (500.0, true));
+        CHECK (a.state.readDue (1000.0, true));
+    });
+
+    test ("a change here not yet announced is replaced by a newer state from someone else, not sent over it", [] {
+        Unit a ("a");
+        a.state.hint (0.0);
+        a.run (0.0, 50.0, "a1");                       // a hidden edit here, seen but not yet still
+        CHECK (a.state.hasLocalChange());
+        const StateRef theirs { "b1", 10, Stamp { 7, "b" } };
+        auto step = a.state.receive ("b", theirs, "a1", 60.0);
+        CHECK (step.need == Need::recheck);
+        CHECK (! a.run (61.0, 209.0, "a1"));           // nothing goes out while theirs is on its way
+        CHECK (a.state.recheck ("a1", 210.0).need == Need::fetch);
+        CHECK (! a.run (211.0, 600.0, "a1"));
+        CHECK (a.state.arrived ("b1", {}));
+        CHECK (a.state.applyDue (false).has_value());
+        a.state.applied ("b1", 10, 650.0);
+        CHECK (! a.state.hasLocalChange());
+        CHECK (! a.run (651.0, 3000.0, "b1"));
+        CHECK (a.state.stats().replacedHere == 1);
+        CHECK (a.state.stats().announced == 0);
+    });
+
+    test ("the decision on #13: A holds a knob while B loads a preset; both end on B's preset with A's knob, and nothing bounces", [] {
+        // Two members with a plugin each: a hidden part and two parameters. A turns
+        // cutoff and holds it while B loads a preset (new hidden part, cutoff 0.2,
+        // res 0.9, both reported). A polls, so it sees its own state change from
+        // the knob alone. Messages take 10 ms.
+        struct Plugin { int hidden = 0; std::map<std::string, float> params { { "cutoff", 0.5f }, { "res", 0.5f } }; };
+        struct Blob { int hidden; std::map<std::string, float> params; };
+        struct Msg { double at; int to; int kind; std::vector<Change> changes; StateRef ref; std::string hash; };
+        enum { paramsMsg, announceMsg, wantMsg, bytesMsg };
+
+        StateOptions o; o.pollMs = 100.0;
+        Options po; po.flushIntervalMs = 33.0;
+        Plugin plug[2];
+        ParamSync ps[2] { ParamSync ("a", po), ParamSync ("b", po) };
+        std::unique_ptr<StateSync> ss[2];
+        std::map<std::string, Blob> bytes;
+        std::map<std::string, ParamSync::Snapshot> offers;
+        std::vector<Msg> net;
+        bool holding[2] { false, false };
+        std::uint64_t announced[2] {}, applied[2] {};
+
+        auto save = [&] (int m)
+        {
+            auto& p = plug[m];
+            const auto text = std::to_string (p.hidden) + "|" + std::to_string (p.params["cutoff"]) + "|" + std::to_string (p.params["res"]);
+            const auto h = sha (text);
+            bytes[h] = { p.hidden, p.params };
+            return h;
+        };
+
+        for (int m = 0; m < 2; ++m)
+        {
+            for (auto& [k, v] : plug[m].params)
+                ps[m].seed (k, v);
+            ss[m] = std::make_unique<StateSync> (ps[m], [&plug, m] { return plug[m].params; }, o);
+            ss[m]->loaded (save (m), 10);
+        }
+
+        auto send = [&] (int to, Msg msg, double now) { msg.at = now + 10.0; msg.to = to; net.push_back (std::move (msg)); };
+        auto knob = [&] (int m, const std::string& n, float v, double now)
+        {
+            plug[m].params[n] = v;
+            ss[m]->localActivity (now);
+            if (auto again = ps[m].localValue (n, v, now))
+                plug[m].params[again->param] = again->value;
+        };
+
+        for (double now = 0.0; now <= 6000.0; now += 1.0)
+        {
+            // A takes the knob and keeps turning it, a step every 20 ms, from 0.5 to 0.8, letting go at 3 s.
+            if (now == 0.0)
+            {
+                ps[0].localGestureBegin ("cutoff", now);
+                holding[0] = true;
+            }
+            if (now <= 3000.0 && (int) now % 20 == 0)
+                knob (0, "cutoff", 0.5f + 0.3f * (float) (now / 3000.0), now);
+            if (now == 3000.0)
+            {
+                ps[0].localGestureEnd ("cutoff", now);
+                holding[0] = false;
+            }
+            if (now == 2900.0)
+                CHECK (announced[1] == 1 && applied[0] == 0);   // B's preset went out while A kept turning; A waits
+
+            // B loads a preset at 50 ms.
+            if (now == 50.0)
+            {
+                plug[1].hidden = 7;
+                knob (1, "cutoff", 0.2f, now);
+                knob (1, "res", 0.9f, now);
+                ss[1]->hint (now);
+            }
+
+            for (int m = 0; m < 2; ++m)
+            {
+                auto& s = *ss[m];
+                const int other = 1 - m;
+
+                if (s.readDue (now, true))
+                    s.observed (save (m), 10, 0.1, now);
+
+                if (s.recheckDue (now))
+                    if (auto step = s.recheck (save (m), now); step.need == Need::fetch)
+                        send (other, { 0, 0, wantMsg, {}, {}, step.hash }, now);
+
+                if (auto h = s.applyDue (holding[m]))
+                {
+                    const auto blob = bytes.at (*h);
+                    plug[m].hidden = blob.hidden;
+                    plug[m].params = blob.params;
+                    ++applied[m];
+                    for (auto& again : s.applied (save (m), 10, now))
+                        plug[m].params[again.param] = again.value;
+                }
+
+                if (auto offer = s.flush (now, holding[m]))
+                {
+                    ++announced[m];
+                    offers[offer->ref.hash] = offer->params;
+                    send (other, { 0, 0, announceMsg, {}, offer->ref, {} }, now);
+                }
+
+                if (auto out = ps[m].flush (now); ! out.empty())
+                    send (other, { 0, 0, paramsMsg, out, {}, {} }, now);
+            }
+
+            for (std::size_t i = 0; i < net.size();)
+            {
+                if (net[i].at > now) { ++i; continue; }
+                auto msg = net[i];
+                net.erase (net.begin() + (std::ptrdiff_t) i);
+                const int to = msg.to, from = 1 - to;
+                const std::string sender = from == 0 ? "a" : "b";
+
+                if (msg.kind == paramsMsg)
+                {
+                    auto applies = ps[to].receive (sender, msg.changes, now);
+                    bool held = false;
+                    for (auto& ap : applies)
+                    {
+                        plug[to].params[ap.param] = ap.value;
+                        held = held || ! ps[to].heldBy (ap.param).empty();
+                    }
+                    if (! applies.empty())
+                        ss[to]->remoteActivity (now, held);
+                }
+                else if (msg.kind == announceMsg)
+                {
+                    if (auto step = ss[to]->receive (sender, msg.ref, save (to), now); step.need == Need::fetch)
+                        send (from, { 0, 0, wantMsg, {}, {}, step.hash }, now);
+                }
+                else if (msg.kind == wantMsg)
+                    send (from, { 0, 0, bytesMsg, {}, {}, msg.hash }, now);
+                else
+                    ss[to]->arrived (msg.hash, offers.at (msg.hash));
+            }
+        }
+
+        CHECK (plug[0].hidden == 7 && plug[1].hidden == 7);                                    // B's preset on both
+        CHECK (std::abs (plug[0].params["cutoff"] - 0.8f) < 1e-6f);                             // A's knob on both
+        CHECK (std::abs (plug[1].params["cutoff"] - 0.8f) < 1e-6f);
+        CHECK (std::abs (plug[0].params["res"] - 0.9f) < 1e-6f);                                // the rest of B's preset
+        CHECK (std::abs (plug[1].params["res"] - 0.9f) < 1e-6f);
+        CHECK (save (0) == save (1));
+        CHECK (announced[0] == 0);                                                              // A never sent its whole state
+        CHECK (applied[0] == 1 && applied[1] == 0);                                             // B's loaded once, nothing came back
+        CHECK (ss[0]->stats().replacedHere == 1);                                               // A's knob-only change was seen, and replaced
+        CHECK (net.empty() && ! ss[0]->isWaiting() && ! ss[1]->hasLocalChange() && ! ps[0].hasPending());
+    });
+
+    test ("a parameter the plugin changed without telling the host is found by whoever applies the state, and sent on", [] {
+        Unit a ("a"), b ("b");
+        // A preset load in A's plugin moved cutoff to 0.1 without a report: A's host still thinks 0.5.
+        a.state.hint (0.0);
+        auto offer = a.run (0.0, 500.0, "preset");
+        CHECK (offer.has_value());
+        if (! offer)
+            return;
+        CHECK (offer->params.at ("cutoff").first == 0.5f);
+
+        b.state.receive ("a", offer->ref, "h0", 600.0);
+        b.state.recheck ("h0", 750.0);
+        CHECK (b.state.arrived ("preset", offer->params));
+        CHECK (b.state.applyDue (false).has_value());
+        b.values["cutoff"] = 0.1f;   // what B's plugin holds once it loaded the state
+        auto again = b.state.applied ("preset", 10, 800.0);
+        CHECK (again.empty());
+        CHECK (b.state.stats().paramsDiscovered == 1);
+        CHECK (b.params.value ("cutoff") && std::abs (*b.params.value ("cutoff") - 0.1f) < 1e-6f);
+        CHECK (b.params.stamp ("cutoff") && *b.params.stamp ("cutoff") == offer->ref.stamp);
+
+        // B sends it on as a parameter change, and A's host learns it.
+        auto sent = b.params.flush (900.0);
+        CHECK (sent.size() == 1 && sent[0].param == "cutoff" && sent[0].stamp == offer->ref.stamp);
+        auto applies = a.params.receive ("b", sent, 1000.0);
+        CHECK (applies.size() == 1 && std::abs (applies[0].value - 0.1f) < 1e-6f);
+    });
+
+    test ("a state that carries an older value of a parameter has it put back", [] {
+        Unit b ("b");
+        b.params.receive ("c", { { "cutoff", 0.8f, Stamp { 20, "c" }, Flags::none } }, 0.0);
+        b.values["cutoff"] = 0.8f;
+        const StateRef ref { "h1", 10, Stamp { 10, "a" } };
+        ParamSync::Snapshot sent { { "cutoff", { 0.4f, Stamp { 5, "a" } } }, { "res", { 0.3f, Stamp { 9, "a" } } } };
+        b.state.receive ("a", ref, "h0", 0.0);
+        b.state.recheck ("h0", 150.0);
+        b.state.arrived ("h1", sent);
+        b.state.applyDue (false);
+        b.values["cutoff"] = 0.4f;   // the state set cutoff back to what A had when it saved
+        b.values["res"] = 0.3f;
+        auto again = b.state.applied ("h1", 10, 200.0);
+        CHECK (again.size() == 1 && again[0].param == "cutoff" && std::abs (again[0].value - 0.8f) < 1e-6f);
+        CHECK (b.params.value ("res") && std::abs (*b.params.value ("res") - 0.3f) < 1e-6f);
+        CHECK (b.params.stamp ("res") && *b.params.stamp ("res") == (Stamp { 9, "a" }));
+        CHECK (b.state.stats().paramsDiscovered == 0);
+        CHECK (b.params.flush (300.0).empty());
+
+        // The plugin reports the value it loaded, late: an echo, and the newest is set again.
+        auto late = b.params.localValue ("cutoff", 0.4f, 12000.0);
+        CHECK (late && std::abs (late->value - 0.8f) < 1e-6f);
+        CHECK (b.params.flush (12100.0).empty());
+
+        // Only once: the same value again is a person setting it.
+        CHECK (! b.params.localValue ("cutoff", 0.4f, 13000.0));
+        auto again2 = b.params.flush (13100.0);
+        CHECK (again2.size() == 1 && std::abs (again2[0].value - 0.4f) < 1e-6f);
+    });
+
+    test ("an untouched state loses to any edited one, and two untouched ones agree by member id", [] {
+        Unit a ("a"), b ("b");
+        CHECK (a.state.current() && a.state.current()->stamp.counter == 0);
+        auto step = a.state.receive ("b", *b.state.current(), "h0", 0.0);
+        CHECK (step.need == Need::nothing);              // same default state
+        CHECK (a.state.stats().matched == 1);
+        CHECK (b.state.receive ("a", *a.state.current(), "h0", 0.0).need == Need::nothing);
+        CHECK (b.state.stats().stale == 1);              // "b" outranks "a" at counter 0
+    });
+}
+
+//==============================================================================
+// Random convergence. Each member hosts a simulated plugin with parameters and
+// a hidden part (a wavetable, an LFO shape). People move knobs, edit the hidden
+// part and load presets, all at once, through a relay with random delays. The
+// plugins can save the same thing differently (another version), take a while
+// to reflect a parameter in their saved state, rewrite their state after a load,
+// change parameters on a preset load without telling the host, and hint or not.
+// After everyone stops, every member must hold the same hidden part and the
+// same parameters, and the traffic must stop.
+
+struct Setting
+{
+    const char* name;
+    bool setDirty = true;         // the plugin calls setDirty when its hidden part changes
+    bool window = true;           // the host sees the mouse let go in the plugin's window
+    bool poll = false;            // the host polls
+    bool reportsPresetParams = true;
+    bool versionsDiffer = false;  // each member saves the same content differently
+    double processLagMs = 0.0;    // a parameter set from outside reaches the saved state this much later
+    double settleMs = 0.0;        // after a load, the plugin rewrites its state this much later
+    double recheckMs = 150.0;
+    bool measureOnly = false;     // a setting expected to lose some edits: report how often, do not fail
+    bool noisy = false;           // every save differs (a counter in the state); the host knows from loading it
+    int knownRewrites = -1;       // what an earlier session learned about the plugin settling after loads
+};
+
+struct SimPlugin
+{
+    std::map<std::string, float> truth;           // what the plugin really holds
+    std::map<std::string, float> cache;           // what the host thinks it holds (JUCE's cached values)
+    std::map<std::string, float> processed;       // what the processor saves; lags parameters set from outside
+    double processedAtMs = 0.0;
+    int hidden = 0;
+    int version = 0;
+    bool cached = true;                           // rewritten some time after a load
+    double cacheAtMs = 0.0;
+    bool noisy = false;
+    mutable int saves = 0;
+
+    std::string save() const
+    {
+        std::string s = "v" + std::to_string (version) + "|" + std::to_string (hidden) + "|" + (cached ? "c" : "-");
+        for (auto& [k, v] : processed)
+            s += "|" + k + "=" + std::to_string (v);
+        if (noisy)
+            s += "#" + std::to_string (++saves);
+        return s;
+    }
+};
+
+struct Blob
+{
+    int hidden = 0;
+    std::map<std::string, float> params;
+};
+
+struct Msg
+{
+    double at;
+    enum Kind { params, announce, want, bytes } kind;
+    std::vector<Change> changes;
+    StateRef ref;
+    std::string hash;
+};
+
+struct RunResult
+{
+    bool converged = true, quiesced = true;
+    std::uint64_t messages = 0, applied = 0, matched = 0, discovered = 0;
+    std::string detail;
+};
+
+bool traceOn = false;
+#define TRACE(...) do { if (traceOn) std::printf (__VA_ARGS__); } while (false)
+
+RunResult simulate (unsigned seed, int members, const Setting& setting)
+{
+    std::mt19937 rng (seed);
+    auto uniform = [&] (double lo, double hi) { return std::uniform_real_distribution<double> (lo, hi) (rng); };
+    auto chance = [&] (double p) { return uniform (0.0, 1.0) < p; };
+    const auto M = (std::size_t) members;
+
+    const std::vector<std::string> names { "cutoff", "res", "level" };
+    std::vector<SimPlugin> plugins (M);
+    std::vector<std::unique_ptr<ParamSync>> ps;
+    std::vector<std::unique_ptr<StateSync>> ss;
+    std::map<std::string, Blob> bytes;                     // what each hash's bytes hold
+    std::map<std::string, ParamSync::Snapshot> offers;     // the parameters sent with them
+
+    Options po; po.flushIntervalMs = 33.0;
+    StateOptions so;
+    so.pollMs = setting.poll ? 100.0 : 0.0;
+    so.recheckMs = setting.recheckMs;
+    so.knownRewrites = setting.knownRewrites;
+    so.learnSettling = ! setting.window;   // only a host that cannot see the mouse in the window learns it
+
+    for (std::size_t m = 0; m < M; ++m)
+    {
+        auto& pl = plugins[m];
+        pl.version = setting.versionsDiffer ? (int) m : 0;
+        for (auto& n : names)
+            pl.truth[n] = pl.cache[n] = pl.processed[n] = 0.5f;
+
+        ps.push_back (std::make_unique<ParamSync> ("m" + std::to_string (m), po));
+        for (auto& n : names)
+            ps.back()->seed (n, 0.5f);
+        ss.push_back (std::make_unique<StateSync> (*ps.back(), [&pl] { return pl.cache; }, so));
+        pl.noisy = setting.noisy;
+        const auto saved = pl.save();
+        ss.back()->loaded (sha (saved), saved.size());
+        ss.back()->setNoisy (setting.noisy);
+        bytes[sha (saved)] = { pl.hidden, pl.processed };
+    }
+
+    std::vector<std::vector<std::deque<Msg>>> links (M, std::vector<std::deque<Msg>> (M));
+    std::vector<std::map<std::string, bool>> holding (M);
+    std::vector<std::map<std::string, double>> holdUntil (M);
+    RunResult result;
+    double lastActivity = 0.0;
+    const double activeMs = 8000.0, endMs = 90000.0;
+
+    auto send = [&] (std::size_t from, std::size_t to, Msg msg, double now)
+    {
+        auto& q = links[from][to];
+        const double earliest = q.empty() ? now : q.back().at;
+        msg.at = std::max (earliest, now + uniform (5.0, 120.0));
+        q.push_back (std::move (msg));
+        ++result.messages;
+        lastActivity = now;
+    };
+
+    auto broadcast = [&] (std::size_t from, const Msg& msg, double now)
+    {
+        for (std::size_t to = 0; to < M; ++to)
+            if (to != from)
+                send (from, to, msg, now);
+    };
+
+    // The host sets a parameter: the plugin takes it, its saved state follows after the lag.
+    auto setParam = [&] (std::size_t m, const std::string& n, float v, double now)
+    {
+        auto& pl = plugins[m];
+        pl.truth[n] = pl.cache[n] = v;
+        pl.processedAtMs = now + setting.processLagMs;
+    };
+
+    auto anyHeld = [&] (std::size_t m)
+    {
+        for (auto& [n, h] : holding[m])
+            if (h)
+                return true;
+        return false;
+    };
+
+    // The host reads the state, and keeps the bytes of what it read.
+    auto readState = [&] (std::size_t m)
+    {
+        const auto saved = plugins[m].save();
+        const auto h = sha (saved);
+        bytes[h] = { plugins[m].hidden, plugins[m].processed };
+        return h;
+    };
+
+    for (double now = 0.0; now <= endMs; now += 1.0)
+    {
+        for (std::size_t m = 0; m < M; ++m)
+        {
+            auto& pl = plugins[m];
+            auto& p = *ps[m];
+            auto& s = *ss[m];
+
+            // The plugin processes audio: its saved state catches up with its parameters.
+            if (now >= pl.processedAtMs)
+                pl.processed = pl.truth;
+            if (! pl.cached && now >= pl.cacheAtMs)
+                pl.cached = true;
+
+            // People act: each member is busy every other second, the members out of step.
+            const bool busy = ((int) (now / 1000.0) + (int) m) % 2 == 0;
+
+            if (now < activeMs && chance (busy ? 0.02 : 0.0005))
+            {
+                const double r = uniform (0.0, 1.0);
+                const auto& n = names[(std::size_t) (rng() % names.size())];
+                auto& held = holding[m][n];
+
+                if (r < 0.2 && ! held)
+                {
+                    p.localGestureBegin (n, now);
+                    held = true;
+                    holdUntil[m][n] = now + uniform (50.0, 800.0);
+                }
+                else if (r < 0.6)
+                {
+                    const float v = (float) uniform (0.0, 1.0);
+                    setParam (m, n, v, now);
+                    pl.processedAtMs = now;
+                    s.localActivity (now);
+                    TRACE ("%6.0f m%zu knob %s %.3f\n", now, m, n.c_str(), v);
+                    if (auto again = p.localValue (n, v, now))
+                        setParam (m, again->param, again->value, now);
+                }
+                else if (r < 0.85)
+                {
+                    pl.hidden = (int) (rng() % 100000);
+                    TRACE ("%6.0f m%zu hidden %d\n", now, m, pl.hidden);
+                    if (setting.window)
+                    {
+                        s.localActivity (now);
+                        s.hint (now);
+                    }
+                    if (setting.setDirty)
+                        s.hint (now);
+                }
+                else
+                {
+                    // A preset: the hidden part and every parameter not held here.
+                    pl.hidden = (int) (rng() % 100000);
+                    TRACE ("%6.0f m%zu preset %d%s\n", now, m, pl.hidden, setting.reportsPresetParams ? "" : " (parameters not reported)");
+                    if (setting.window)
+                        s.localActivity (now);
+                    for (auto& k : names)
+                    {
+                        if (holding[m][k])
+                            continue;
+                        const float v = (float) uniform (0.0, 1.0);
+                        pl.truth[k] = v;
+                        if (setting.reportsPresetParams)
+                        {
+                            s.localActivity (now);   // the host counts a reported parameter change as something done here
+                            pl.cache[k] = v;
+                            if (auto again = p.localValue (k, v, now))
+                                setParam (m, again->param, again->value, now);
+                        }
+                    }
+                    pl.processed = pl.truth;
+                    if (setting.window || setting.setDirty)
+                        s.hint (now);
+                }
+            }
+
+            // Letting go, as the host does it: the plugin's final value, then the end of the gesture.
+            for (auto& [n, held] : holding[m])
+            {
+                if (held && (now >= holdUntil[m][n] || now >= activeMs))
+                {
+                    if (auto again = p.localValue (n, pl.cache[n], now))
+                        setParam (m, again->param, again->value, now);
+                    p.localGestureEnd (n, now);
+                    held = false;
+                }
+            }
+
+            if (s.readDue (now, setting.poll))
+            {
+                const auto h = readState (m);
+                s.observed (h, 10, 0.2, now);
+                const auto& c = s.stats();
+                TRACE ("%6.0f m%zu read %s local=%llu remote=%llu settle=%llu pending=%d\n", now, m, h.substr (0, 6).c_str(),
+                       (unsigned long long) c.localChanges, (unsigned long long) c.absorbedRemoteParams,
+                       (unsigned long long) c.absorbedSettling, (int) s.hasLocalChange());
+            }
+
+            if (s.recheckDue (now))
+            {
+                auto step = s.recheck (readState (m), now);
+                if (step.need == Need::fetch)
+                {
+                    TRACE ("%6.0f m%zu want %s from %s\n", now, m, step.hash.substr (0, 6).c_str(), step.from.c_str());
+                    send (m, (std::size_t) std::stoi (step.from.substr (1)), { 0.0, Msg::want, {}, {}, step.hash }, now);
+                }
+            }
+
+            if (auto h = s.applyDue (anyHeld (m)))
+            {
+                // setStateInformation: the plugin takes the bytes, and the host re-reads every parameter.
+                const auto& blob = bytes.at (*h);
+                pl.hidden = blob.hidden;
+                pl.truth = pl.cache = pl.processed = blob.params;
+                pl.processedAtMs = now;
+                if (setting.settleMs > 0.0)
+                {
+                    pl.cached = false;
+                    pl.cacheAtMs = now + setting.settleMs;
+                }
+                ++result.applied;
+                TRACE ("%6.0f m%zu apply %s hidden %d\n", now, m, h->substr (0, 6).c_str(), pl.hidden);
+                const auto before = s.stats().paramsDiscovered;
+                for (auto& a : s.applied (readState (m), 10, now))
+                {
+                    TRACE ("%6.0f m%zu put back %s %.3f\n", now, m, a.param.c_str(), a.value);
+                    setParam (m, a.param, a.value, now);
+                }
+                result.discovered += s.stats().paramsDiscovered - before;
+                lastActivity = now;
+            }
+
+            if (auto offer = s.flush (now, anyHeld (m)))
+            {
+                offers[offer->ref.hash] = offer->params;
+                TRACE ("%6.0f m%zu announce %s (%llu,%s) hidden %d\n", now, m, offer->ref.hash.substr (0, 6).c_str(),
+                       (unsigned long long) offer->ref.stamp.counter, offer->ref.stamp.member.c_str(), bytes.at (offer->ref.hash).hidden);
+                broadcast (m, { 0.0, Msg::announce, {}, offer->ref, {} }, now);
+            }
+
+            auto out = p.flush (now);
+            if (! out.empty())
+                broadcast (m, { 0.0, Msg::params, out, {}, {} }, now);
+        }
+
+        // The network delivers.
+        for (std::size_t from = 0; from < M; ++from)
+        {
+            for (std::size_t to = 0; to < M; ++to)
+            {
+                auto& q = links[from][to];
+
+                while (! q.empty() && q.front().at <= now)
+                {
+                    auto msg = std::move (q.front());
+                    q.pop_front();
+                    lastActivity = now;
+                    auto& p = *ps[to];
+                    auto& s = *ss[to];
+                    const auto sender = "m" + std::to_string (from);
+
+                    switch (msg.kind)
+                    {
+                        case Msg::params:
+                        {
+                            for (auto& c : msg.changes)
+                                TRACE ("%6.0f m%zu <- %s %s %.3f (%llu,%s) f%d\n", now, to, sender.c_str(), c.param.c_str(), c.value,
+                                       (unsigned long long) c.stamp.counter, c.stamp.member.c_str(), c.flags);
+                            auto applies = p.receive (sender, msg.changes, now);
+                            bool held = false;
+                            for (auto& a : applies)
+                            {
+                                setParam (to, a.param, a.value, now);
+                                held = held || ! p.heldBy (a.param).empty();
+                            }
+                            if (! applies.empty())
+                                s.remoteActivity (now, held);
+                            break;
+                        }
+                        case Msg::announce:
+                        {
+                            const auto matchedBefore = s.stats().matched;
+                            auto step = s.receive (sender, msg.ref, readState (to), now);
+                            if (step.need == Need::fetch)
+                                send (to, from, { 0.0, Msg::want, {}, {}, step.hash }, now);
+                            result.matched += s.stats().matched - matchedBefore;
+                            break;
+                        }
+                        case Msg::want:
+                            send (to, from, { 0.0, Msg::bytes, {}, {}, msg.hash }, now);
+                            break;
+                        case Msg::bytes:
+                            s.arrived (msg.hash, offers.at (msg.hash));
+                            break;
+                    }
+                }
+            }
+        }
+
+        bool busy = false;
+        for (std::size_t m = 0; m < M; ++m)
+            busy = busy || ss[m]->hasLocalChange() || ss[m]->isWaiting() || ps[m]->hasPending();
+
+        if (now > activeMs + 3000.0 && now - lastActivity > 3000.0 && ! busy)
+            break;
+    }
+
+    for (std::size_t m = 0; m < M; ++m)
+    {
+        if (ss[m]->hasLocalChange() || ss[m]->isWaiting() || ps[m]->hasPending())
+            result.quiesced = false;
+        for (std::size_t to = 0; to < M; ++to)
+            if (! links[m][to].empty())
+                result.quiesced = false;
+    }
+
+    // Same everywhere: the hidden part, what each plugin really holds, what each host knows, and the agreed stamp.
+    for (std::size_t m = 0; m < M; ++m)
+    {
+        const auto& a = plugins[0];
+        const auto& b = plugins[m];
+        const auto tag = "m" + std::to_string (m);
+
+        if (a.hidden != b.hidden)
+        {
+            result.converged = false;
+            result.detail += "hidden m0=" + std::to_string (a.hidden) + " " + tag + "=" + std::to_string (b.hidden) + "; ";
+        }
+
+        if (! (ss[0]->agreedStamp() == ss[m]->agreedStamp()))
+        {
+            result.converged = false;
+            result.detail += "agreed stamp differs for " + tag + "; ";
+        }
+
+        for (auto& n : names)
+        {
+            const float known = *ps[m]->value (n);
+
+            if (std::abs (a.truth.at (n) - b.truth.at (n)) > 1.0e-6f || std::abs (known - b.truth.at (n)) > 1.0e-6f
+                || std::abs (b.cache.at (n) - b.truth.at (n)) > 1.0e-6f)
+            {
+                result.converged = false;
+                result.detail += n + ": " + tag + " plugin=" + std::to_string (b.truth.at (n)) + " host=" + std::to_string (b.cache.at (n))
+                               + " known=" + std::to_string (known) + ", m0 plugin=" + std::to_string (a.truth.at (n)) + "; ";
+            }
+        }
+    }
+
+    return result;
+}
+
+const Setting settings[] {
+    //  name                                                setDirty window poll  reports versions lag   settle recheck measure
+    { "setDirty and the mouse in the window" },
+    { "the mouse in the window only, polling",               false,   true,  true },
+    { "presets change parameters without telling the host",   true,    true,  true,  false },
+    { "versions save differently",                           true,    true,  false, true,   true },
+    { "parameters reach the saved state 40 ms late",         true,    true,  true,  true,   false,   40.0 },
+    { "plugins rewrite their state 400 ms after a load",     true,    true,  true,  true,   false,   0.0,  400.0 },
+    { "everything at once",                                  true,    true,  true,  false,  true,    40.0, 400.0 },
+    { "no recheck before fetching",                          true,    true,  true,  true,   false,   40.0, 0.0,   0.0 },
+    { "noisy plugins, read during edits (finding 18)",        true,    true,  true,  false,  false,   40.0, 0.0,   150.0, false, true },
+    // Measured, not required: with only setDirty, or no signal at all, an edit
+    // in the 1.5 s after a state arrives looks like the plugin settling.
+    { "setDirty only",                                       true,    false, false, true,   false,   0.0,  0.0,   150.0, true },
+    { "no signal at all, polling",                           false,   false, true,  true,   false,   0.0,  0.0,   150.0, true },
+    // The same, with what an earlier session learned: this plugin does not rewrite its
+    // state after a load, so no change after a load is taken for settling.
+    { "setDirty only, settling learned",                     true,    false, false, true,   false,   0.0,  0.0,   150.0, true, false, 0 },
+    { "no signal at all, polling, settling learned",         false,   false, true,  true,   false,   0.0,  0.0,   150.0, true, false, 0 },
+    // A plugin learned to rewrite after loads keeps the window, and must still agree.
+    { "plugins rewrite after a load, learned",               true,    true,  true,  true,   false,   0.0,  400.0, 150.0, false, false, 1 },
+};
+
+void convergenceTests (int seeds)
+{
+    for (const auto& s : settings)
+    {
+        for (int members = 2; members <= 4; ++members)
+        {
+            std::string name = std::string ("random convergence, ") + std::to_string (members) + " members, " + s.name;
+            test (name.c_str(), [&] {
+                std::uint64_t messages = 0, applied = 0, matched = 0, discovered = 0;
+                int diverged = 0;
+
+                for (int seed = 1; seed <= seeds; ++seed)
+                {
+                    auto r = simulate ((unsigned) (seed * 7919 + members), members, s);
+                    messages += r.messages;
+                    applied += r.applied;
+                    matched += r.matched;
+                    discovered += r.discovered;
+
+                    if (! r.quiesced || (! r.converged && ! s.measureOnly))
+                    {
+                        std::printf ("  seed %d: converged=%d quiesced=%d %s\n", seed, r.converged, r.quiesced, r.detail.c_str());
+                        CHECK (r.converged && r.quiesced);
+                        return;
+                    }
+
+                    if (! r.converged)
+                    {
+                        ++diverged;
+                        if (std::getenv ("SHOW_LOST") != nullptr)
+                            std::printf ("  lost, seed %d: %s\n", seed, r.detail.c_str());
+                    }
+                }
+
+                if (s.measureOnly)
+                    std::printf ("  measured: %d of %d runs ended with an edit lost\n", diverged, seeds);
+
+                std::printf ("  %d seeds; per run on average %.1f messages, %.1f states applied, %.1f already matched, %.1f silent parameters found\n",
+                             seeds, (double) messages / seeds, (double) applied / seeds, (double) matched / seeds, (double) discovered / seeds);
+            });
+        }
+    }
+}
+} // namespace
+
+int main (int argc, char** argv)
+{
+    int seeds = 100;
+
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::strcmp (argv[i], "--seeds") == 0)
+            seeds = std::max (1, std::atoi (argv[i + 1]));
+
+    if (argc >= 5 && std::strcmp (argv[1], "--trace") == 0)
+    {
+        traceOn = true;
+        const int index = std::atoi (argv[4]);
+        auto r = simulate ((unsigned) std::atoi (argv[2]), std::atoi (argv[3]), settings[index]);
+        std::printf ("converged=%d quiesced=%d %s\n", r.converged, r.quiesced, r.detail.c_str());
+        return 0;
+    }
+
+    helperTests();
+    ruleTests();
+    convergenceTests (seeds);
+
+    std::printf ("\n%d checks, %d failed\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}

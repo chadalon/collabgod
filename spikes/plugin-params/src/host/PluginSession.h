@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Spike for issue #12. Throwaway code: product code never includes this.
+// Spike for issues #12 and #13. Throwaway code: product code never includes this.
 //
 // One member's side: an edit with one VST3 hosted in Tracktion Engine, the
 // listeners that hear its parameters change, and the sync rules (src/core) in
-// between. It sends and receives text messages; who carries them (Link, or a
+// between. Its StateHost syncs the plugin's saved state (#13). It sends and receives text messages; who carries them (Link, or a
 // test) is up to the caller. Everything runs on the message thread except the
 // raw counters, which a plugin may bump from its audio thread.
 
@@ -15,6 +15,7 @@
 #include <map>
 
 #include "../core/ParamSync.h"
+#include "StateHost.h"
 #include "Wire.h"
 
 namespace spike
@@ -35,6 +36,7 @@ struct SessionStats
     std::uint64_t automationIgnored = 0;   ///< changes while automation plays the parameter; each side plays its own copy
     std::uint64_t remoteSetEchoes = 0;     ///< callbacks caused by setting a remote value, swallowed at once
     std::uint64_t unknownRemoteParams = 0; ///< remote changes to a parameter ID this plugin does not have
+    std::uint64_t sameValueReports = 0;    ///< reports from the plugin that repeated the known value
     std::uint64_t foreignPluginBatches = 0;///< batches from a member with a different plugin, ignored
 };
 
@@ -97,10 +99,21 @@ public:
 
     const Hello& getHello() const                   { return hello; }
     const std::map<juce::String, Hello>& getPeers() const { return peers; }
+
+    /** Where this member's hands are: the plugin window open, a button pressed in it.
+        Sent to the others when it changes. */
+    void setPresence (bool windowOpen, bool pressing);
+    const std::map<juce::String, Presence>& getPresence() const { return presence; }
+    /** One line per other member: which plugin they have up, whether its window is
+        open, and what they are touching in it. */
+    juce::StringArray describeOthers() const;
     /** The differences found with each peer's parameter list, by member. */
     const std::map<juce::String, juce::StringArray>& getMismatches() const { return mismatches; }
 
     psync::ParamSync& getSync()                     { return sync; }
+    StateHost& getState()                           { return state; }
+    /** What the plugin holds now for every synced parameter, by ID. */
+    std::map<std::string, float> paramValues() const;
     SessionStats getStats() const;
     std::uint64_t bytesSent() const noexcept        { return sentBytes; }
 
@@ -144,8 +157,13 @@ private:
     std::vector<juce::AudioProcessorParameter*> rawListened;
 
     psync::ParamSync sync;
+    StateHost state { sync, member };
+    double lastRemoteApplyMs = -1.0e12;
     Hello hello;
     std::map<juce::String, Hello> peers;
+    std::map<juce::String, Presence> presence;
+    Presence ownPresence;
+    void sendPresence();
     std::map<juce::String, juce::StringArray> mismatches;
     std::set<juce::String> unknownIdsLogged;
 

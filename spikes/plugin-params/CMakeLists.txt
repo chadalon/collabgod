@@ -20,10 +20,13 @@ endif()
 enable_testing()
 
 # ---------------------------------------------------------------------------
-# The mirroring rules: plain C++20, no JUCE, no engine. Tested on their own.
+# The mirroring rules for parameters (#12) and state (#13): plain C++20, no
+# JUCE, no engine. Tested on their own.
 # ---------------------------------------------------------------------------
 
-add_library(param_sync_core STATIC src/core/ParamSync.cpp src/core/ParamSync.h)
+add_library(param_sync_core STATIC
+    src/core/ParamSync.cpp src/core/ParamSync.h
+    src/core/StateSync.cpp src/core/StateSync.h)
 target_include_directories(param_sync_core PUBLIC src/core)
 
 if(MSVC)
@@ -35,6 +38,11 @@ endif()
 add_executable(param_sync_tests tests/ParamSyncTests.cpp)
 target_link_libraries(param_sync_tests PRIVATE param_sync_core)
 add_test(NAME sync_rules COMMAND param_sync_tests)
+
+# Issue #13: the state sync rules, on the same clock as the parameter rules.
+add_executable(state_sync_tests tests/StateSyncTests.cpp)
+target_link_libraries(state_sync_tests PRIVATE param_sync_core)
+add_test(NAME state_rules COMMAND state_sync_tests)
 
 # ---------------------------------------------------------------------------
 # Everything else needs the same pinned JUCE 9 and Tracktion Engine as
@@ -123,10 +131,22 @@ target_sources(plugin_params_spike PRIVATE
     src/host/Link.h
     src/host/PluginSession.cpp
     src/host/PluginSession.h
+    src/host/StateHost.cpp
+    src/host/StateHost.h
     src/host/Wire.cpp
     src/host/Wire.h
+    src/probe/StateProbe.cpp
+    src/selftest/Harness.h
     src/selftest/SelfTest.cpp
-    src/selftest/SelfTest.h)
+    src/selftest/SelfTest.h
+    src/selftest/StateSelfTest.cpp)
+
+# Mouse buttons as the system sees them (finding 16): AppKit on macOS, JUCE elsewhere.
+if(APPLE)
+    target_sources(plugin_params_spike PRIVATE src/app/MouseButtons.h src/app/MouseButtons_mac.mm)
+else()
+    target_sources(plugin_params_spike PRIVATE src/app/MouseButtons.h src/app/MouseButtons.cpp)
+endif()
 
 target_compile_definitions(plugin_params_spike PRIVATE
     ${PLUGIN_PARAMS_DEFINITIONS}
@@ -164,3 +184,20 @@ add_test(NAME mirror_between_members
         --v2 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v2_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
         --log-dir ${CMAKE_BINARY_DIR}/selftest)
 set_tests_properties(mirror_between_members PROPERTIES TIMEOUT 180)
+
+# Issue #13: the plugin's saved state between three members, with the same test VST3.
+add_test(NAME state_between_members
+    COMMAND plugin_params_spike --self-test-state
+        --v1 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v1_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+        --v2 "$<GENEX_EVAL:$<TARGET_PROPERTY:test_synth_v2_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+        --log-dir ${CMAKE_BINARY_DIR}/selftest-state)
+set_tests_properties(state_between_members PROPERTIES TIMEOUT 300)
+
+# The probe that measures real plugins, run on both versions of the test VST3,
+# each in its own process as it runs on a folder of real plugins.
+add_test(NAME state_probe
+    COMMAND plugin_params_spike
+        --probe-state "$<TARGET_FILE_DIR:test_synth_v1>/.."
+        --out ${CMAKE_BINARY_DIR}/selftest-state/probe.md --try-bad-state)
+set_tests_properties(state_probe PROPERTIES TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "CollabGod Test Synth \\(CollabGod\\) \\| 1\\.0\\.0.*Report written")

@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Spike for issue #12. Throwaway code: product code never includes this.
+// Spike for issues #12 and #13. Throwaway code: product code never includes this.
 //
 // The app for trying real plugins on real machines. Run two copies, on one
 // machine or two, load the same VST3 in both, connect them, and move a knob in
-// one plugin window: it moves in the other. The window shows the message rates
-// and counters the findings need, and writes a report to paste into the issue.
-// See README.md, "Try it with real plugins".
+// one plugin window: it moves in the other. Load a preset or edit an LFO: the
+// plugin's saved state follows (#13). The window shows the message rates and
+// counters the findings need, and writes a report to paste into the issue.
+// See README.md, "Try it with real plugins", and README-STATE.md.
 
 #include <JuceHeader.h>
 
+#include <algorithm>
+#include <map>
+#include <numeric>
+
 #include "../host/Link.h"
+#include "MouseButtons.h"
 #include "../host/PluginSession.h"
 #include "../selftest/SelfTest.h"
 
@@ -114,10 +120,30 @@ public:
         addButton (playButton, "Play", [this] { setPlaying (! wantPlaying); });
         addButton (hostButton, "Host", [this] { startHosting(); });
         addButton (joinButton, "Join", [this] { joinHost(); });
-        addButton (sweepButton, "Host sweep 1 s", [this] { startSweep(); });
+        addButton (sweepButton, "Host sweep 1 s", [this] { startSweep (200); });
+        // For checking the decision on #13 alone at one machine: this copy holds the
+        // control for 8 s, so there is time to load a preset in the other copy.
+        addButton (holdButton, "Hold 8 s", [this] { startSweep (1600); });
         addButton (automationButton, "Add sweep automation", [this] { addAutomation(); });
         addButton (reportButton, "Save report", [this] { saveReport(); });
         addButton (peaksButton, "Reset peaks", [this] { rates.resetPeaks(); });
+        addButton (markButton, "Mark counters", [this] { markCounters(); });
+        addButton (stepButton, "Log step", [this] { logStep(); });
+        changedButton.setButtonText ("Changed only");
+        changedButton.onClick = [this] { setTextKeepingScroll (statsView, shownStats()); };
+        addAndMakeVisible (changedButton);
+        addButton (sendStateButton, "Send state now", [this] { session->getState().sendNow (PluginSession::nowMs()); });
+        addButton (readStateButton, "Read state now", [this] { session->getState().checkNow (PluginSession::nowMs()); });
+
+        stateButton.setButtonText ("Sync state");
+        stateButton.setToggleState (true, juce::dontSendNotification);
+        stateButton.onClick = [this] { applyOptions(); };
+        addAndMakeVisible (stateButton);
+
+        detectBox.addItemList ({ "Find state changes from hints", "Hints, and poll while the window is open", "Hints, and poll all the time" }, 1);
+        detectBox.setSelectedId (2, juce::dontSendNotification);
+        detectBox.onChange = [this] { applyOptions(); };
+        addAndMakeVisible (detectBox);
 
         muteButton.setButtonText ("Mute this one");
         muteButton.onClick = [this] { session->getEdit().getMasterVolumePlugin()->setVolumeDb (muteButton.getToggleState() ? -100.0f : 0.0f); };
@@ -131,7 +157,8 @@ public:
         addressEditor.setText ("127.0.0.1:52799");
         filterEditor.setTextToShowWhenEmpty ("Filter parameters", juce::Colours::grey);
         filterEditor.onTextChange = [this] { refilter(); };
-        for (auto* e : { &portEditor, &addressEditor, &filterEditor })
+        statsFilter.setTextToShowWhenEmpty ("Show only counter lines containing...", juce::Colours::grey);
+        for (auto* e : { &portEditor, &addressEditor, &filterEditor, &statsFilter })
             addAndMakeVisible (e);
 
         throttleBox.addItemList ({ "Throttle off", "Throttle 16 ms", "Throttle 33 ms", "Throttle 50 ms", "Throttle 100 ms" }, 1);
@@ -145,6 +172,8 @@ public:
 
         statusLabel.setText ("Member " + member + ". Load a plugin, then host or join.", juce::dontSendNotification);
         addAndMakeVisible (statusLabel);
+        othersLabel.setTooltip ("Which plugin each other member has up, whether its window is open, and what they are touching. Nothing is locked: as at one synth, either of you can do anything.");
+        addAndMakeVisible (othersLabel);
 
         list.setModel (this);
         list.setRowHeight (24);
@@ -160,8 +189,9 @@ public:
         logView.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
         addAndMakeVisible (logView);
 
-        setSize (1100, 760);
+        setSize (1100, 800);
         startTimer (250);
+        mouseTimer.startTimerHz (60);
         startedMs = PluginSession::nowMs();
 
         // Optional shortcuts, so two copies can be started from a script:
@@ -179,6 +209,7 @@ public:
     ~MainComponent() override
     {
         stopTimer();
+        mouseTimer.stopTimer();
         pluginWindow.reset();
         link.close();
         session.reset();
@@ -214,13 +245,26 @@ public:
         r2.removeFromLeft (6);
         logButton.setBounds (r2.removeFromLeft (150));
 
+        auto r3 = row();
+        stateButton.setBounds (r3.removeFromLeft (100));
+        r3.removeFromLeft (6);
+        detectBox.setBounds (r3.removeFromLeft (300));
+        r3.removeFromLeft (6);
+        sendStateButton.setBounds (r3.removeFromLeft (120));
+        r3.removeFromLeft (6);
+        readStateButton.setBounds (r3.removeFromLeft (120));
+        r3.removeFromLeft (12);
+        othersLabel.setBounds (r3);
+
         auto left = r.removeFromLeft (r.getWidth() / 2);
         filterEditor.setBounds (left.removeFromTop (26));
         left.removeFromTop (4);
         auto buttons = left.removeFromBottom (28);
         left.removeFromBottom (4);
         list.setBounds (left);
-        sweepButton.setBounds (buttons.removeFromLeft (130));
+        sweepButton.setBounds (buttons.removeFromLeft (120));
+        buttons.removeFromLeft (6);
+        holdButton.setBounds (buttons.removeFromLeft (80));
         buttons.removeFromLeft (6);
         automationButton.setBounds (buttons.removeFromLeft (170));
 
@@ -230,6 +274,15 @@ public:
         reportButton.setBounds (bottomButtons.removeFromLeft (110));
         bottomButtons.removeFromLeft (6);
         peaksButton.setBounds (bottomButtons.removeFromLeft (110));
+        bottomButtons.removeFromLeft (6);
+        markButton.setBounds (bottomButtons.removeFromLeft (120));
+        bottomButtons.removeFromLeft (6);
+        stepButton.setBounds (bottomButtons.removeFromLeft (90));
+        auto filterRow = r.removeFromTop (26);
+        changedButton.setBounds (filterRow.removeFromRight (120));
+        filterRow.removeFromRight (6);
+        statsFilter.setBounds (filterRow);
+        r.removeFromTop (4);
         statsView.setBounds (r.removeFromTop (r.getHeight() * 3 / 5));
         r.removeFromTop (4);
         logView.setBounds (r);
@@ -256,21 +309,71 @@ private:
     void addLog (const juce::String& s)
     {
         logLines.add (juce::Time::getCurrentTime().toString (false, true, true, true) + "  " + s);
+        ++logLinesAdded;
         while (logLines.size() > 300)
             logLines.remove (0);
         logView.setText (logLines.joinIntoString ("\n"), false);
         logView.moveCaretToEnd();
     }
 
+    // A menu of the plugins in the standard VST3 folders, and "Other file..." for
+    // the rest, starting in the last folder used or the first standard one.
     void choosePlugin()
     {
-        chooser = std::make_unique<juce::FileChooser> ("Choose a VST3 plugin", juce::File(), "*.vst3");
-        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
-                                  | juce::FileBrowserComponent::canSelectDirectories,
-                              [this] (const juce::FileChooser& fc)
+        const auto folders = juce::VST3PluginFormat().getDefaultLocationsToSearch();
+        juce::Array<juce::File> plugins;
+        juce::StringArray names;
+
+        for (int i = 0; i < folders.getNumPaths(); ++i)
+            for (const auto& f : spike::findPlugins (folders[i]))
+            {
+                plugins.add (f);
+                names.add (f.getRelativePathFrom (folders[i]).upToLastOccurrenceOf (".vst3", false, true));
+            }
+
+        juce::PopupMenu menu;
+        menu.addItem (1, "Other file...");
+        menu.addSeparator();
+
+        std::vector<int> order ((size_t) names.size());
+        std::iota (order.begin(), order.end(), 0);
+        std::sort (order.begin(), order.end(), [&] (int a, int b) { return names[a].compareNatural (names[b]) < 0; });
+        for (const auto i : order)
+            menu.addItem (2 + i, names[i]);
+
+        if (plugins.isEmpty())
+            menu.addItem (-1, "No plugins in " + folders.toString(), false);
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (loadButton),
+                            [this, plugins, folders] (int result)
+                            {
+                                if (result >= 2)
+                                    loadPlugin (plugins[result - 2]);
+                                else if (result == 1)
+                                    browseForPlugin (lastPluginFolder.isDirectory() ? lastPluginFolder : folders[0]);
+                            });
+    }
+
+    void browseForPlugin (const juce::File& start)
+    {
+        // Windows' own dialog either picks files or picks folders, never both, and a
+        // .vst3 there may be either. Files only: a bundle in the standard folders is
+        // in the menu; elsewhere, the .vst3 file inside its Contents folder may load (not tried).
+       #if JUCE_WINDOWS
+        const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+       #else
+        const int chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::canSelectDirectories;
+       #endif
+
+        chooser = std::make_unique<juce::FileChooser> ("Choose a VST3 plugin", start, "*.vst3");
+        chooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& fc)
                               {
-                                  if (fc.getResult() != juce::File())
-                                      loadPlugin (fc.getResult());
+                                  const auto file = fc.getResult();
+                                  if (file == juce::File())
+                                      return;
+                                  lastPluginFolder = file.getParentDirectory();
+                                  loadPlugin (file);
                               });
     }
 
@@ -380,6 +483,41 @@ private:
         o.flushIntervalMs = throttles[juce::jlimit (0, 4, throttleBox.getSelectedId() - 1)];
         o.echoWindowMs = windows[juce::jlimit (0, 3, echoBox.getSelectedId() - 1)];
         session->getSync().setOptions (o);
+
+        static const spike::Detect detects[] { spike::Detect::hints, spike::Detect::pollWindow, spike::Detect::pollAlways };
+        auto& state = session->getState();
+        state.enabled = stateButton.getToggleState();
+        state.detect = detects[juce::jlimit (0, 2, detectBox.getSelectedId() - 1)];
+    }
+
+    /** Watches the mouse over the plugin's window: letting go of it there is a
+        sign that something in the plugin changed, whatever the plugin says. The
+        plugin's own view is not a JUCE component, so this asks the system for
+        the button state and the pointer position instead of receiving events. */
+    void watchMouse()
+    {
+        auto& state = session->getState();
+        state.windowOpen = pluginWindow != nullptr;
+
+        if (pluginWindow == nullptr)
+        {
+            session->setPresence (false, false);
+            return;
+        }
+
+        const bool down = cg::anyMouseButtonDown();
+        const auto where = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
+        const bool inside = pluginWindow->getScreenBounds().contains (where);
+
+        // A press that started inside counts until it is let go, wherever the pointer is then.
+        if (down && inside)
+            pressedInWindow = true;
+
+        state.windowMouse (down && pressedInWindow, PluginSession::nowMs());
+        session->setPresence (true, down && pressedInWindow);
+
+        if (! down)
+            pressedInWindow = false;
     }
 
     void updateEventLog()
@@ -509,7 +647,7 @@ private:
     //==========================================================================
     // Measurements
 
-    void startSweep()
+    void startSweep (int steps)
     {
         auto* p = selectedParam();
         if (p == nullptr)
@@ -520,20 +658,22 @@ private:
 
         sweepId = p->id;
         sweepStep = 0;
+        sweepSteps = steps;
         sweepFrom = p->jp->getValue();
         sweepTo = sweepFrom < 0.5f ? 0.95f : 0.05f;
         rates.resetPeaks();
         session->hostGestureBegin (sweepId);
         sweepTimer.startTimer (5);
-        addLog ("Sweeping " + p->name + " from the host: 200 values over about a second.");
+        addLog ("Sweeping " + p->name + " from the host, held: " + juce::String (steps) + " values over about "
+                + juce::String (steps / 200) + " s, ending at " + juce::String (sweepTo, 2) + ".");
     }
 
     void sweepTick()
     {
         ++sweepStep;
-        session->hostSet (sweepId, sweepFrom + (sweepTo - sweepFrom) * (float) sweepStep / 200.0f);
+        session->hostSet (sweepId, sweepFrom + (sweepTo - sweepFrom) * (float) sweepStep / (float) sweepSteps);
 
-        if (sweepStep >= 200)
+        if (sweepStep >= sweepSteps)
         {
             sweepTimer.stopTimer();
             session->hostGestureEnd (sweepId);
@@ -567,7 +707,135 @@ private:
                              + juce::String ((int) session->getPeers().size()) + " other member(s)"
                              + (session->getEdit().getTransport().isPlaying() ? ", playing" : ""),
                              juce::dontSendNotification);
-        statsView.setText (statsText(), false);
+        const auto others = session->describeOthers();
+        othersLabel.setText (others.isEmpty() ? juce::String ("Nobody else here") : others.joinIntoString ("   |   "),
+                             juce::dontSendNotification);
+        setTextKeepingScroll (statsView, shownStats());
+    }
+
+    // The counters' "since mark" column: the change in each count since Mark was pressed,
+    // left blank when it has not changed, so what moved stands out.
+    juce::String sinceMark (const juce::String& name, std::uint64_t v) const
+    {
+        if (capturingMark)
+            markBase[name] = v;
+        if (markTime.isEmpty())
+            return {};
+        const auto it = markBase.find (name);
+        const auto d = it == markBase.end() ? (juce::int64) v : (juce::int64) v - (juce::int64) it->second;
+        return (d == 0 ? juce::String() : (d > 0 ? "+" : "") + juce::String (d)).paddedRight (' ', 8);
+    }
+
+    // One counter's line; one that changed since the mark is also kept in changedLines.
+    juce::String counterLine (const juce::String& name, std::uint64_t v) const
+    {
+        const auto d = sinceMark (name, v);
+        const auto l = name.paddedRight (' ', 38) + d + juce::String ((juce::int64) v);
+        if (d.trim().isNotEmpty())
+            changedLines.add (l);
+        return l;
+    }
+
+    juce::String markColumnTitle() const
+    {
+        return markTime.isEmpty() ? juce::String() : juce::String ("since " + markTime).paddedRight (' ', 8) + "\n";
+    }
+
+    void markCounters()
+    {
+        markBase.clear();
+        markTime = juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+        markLogLines = logLinesAdded;
+        capturingMark = true;
+        statsText();
+        capturingMark = false;
+    }
+
+    // Appends what changed since the last mark (counters with their change, the state lines
+    // and the log lines since) to a steps file in the report folder, then marks again. Pressed
+    // after each step of the checklist, in every copy, it leaves one file per copy to read.
+    void logStep()
+    {
+        if (session->getPlugin() == nullptr)
+            return;
+
+        const auto now = juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+        juce::String t;
+        if (markTime.isEmpty())
+        {
+            t << "\n## " << now << " start\n";
+        }
+        else
+        {
+            ++stepNumber;
+            const auto text = statsText();
+            t << "\n## Step " << stepNumber << ", " << markTime << " to " << now << "\n\n```\n";
+            t << (changedLines.isEmpty() ? juce::String ("(no counter changed)\n") : changedLines.joinIntoString ("\n") + "\n");
+            for (const auto& l : juce::StringArray::fromLines (text))
+                if (l.startsWith ("STATE:") || l.startsWith ("last transfer") || l.startsWith ("size now") || l.startsWith ("applying"))
+                    t << l.trimEnd() << "\n";
+            t << "```\n";
+
+            const int fresh = (int) std::min<juce::int64> (logLinesAdded - markLogLines, logLines.size());
+            if (fresh > 0)
+            {
+                t << "\n```\n";
+                for (int i = logLines.size() - fresh; i < logLines.size(); ++i)
+                    t << logLines[i] << "\n";
+                t << "```\n";
+            }
+        }
+
+        const bool newFile = ! stepsFile.existsAsFile();
+        if (newFile)
+        {
+            reportFolder().createDirectory();
+            const auto& h = session->getHello();
+            stepsFile = reportFolder().getChildFile ("steps-" + juce::File::createLegalFileName (h.plugin.name) + "-" + member + "-"
+                                                     + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".md");
+            stepsFile.replaceWithText ("# " + h.plugin.name + " " + h.plugin.version + ", member " + member
+                                       + (connections > 0 ? "" : " (not connected)") + "\n");
+        }
+        stepsFile.appendText (t);
+        markCounters();
+        addLog ((stepNumber == 0 ? juce::String ("Counters marked.") : "Step " + juce::String (stepNumber) + " logged.")
+                + (newFile ? " Steps file: " + stepsFile.getFullPathName() : juce::String()));
+    }
+
+    // The counters as shown: only the lines containing the filter's text, if any, and with
+    // "Changed only", only the counters that changed since the mark.
+    juce::String shownStats() const
+    {
+        const auto text = statsText();
+        const auto filter = statsFilter.getText().trim();
+        const bool changedOnly = changedButton.getToggleState();
+        if (filter.isEmpty() && ! changedOnly)
+            return text;
+        if (changedOnly && markTime.isEmpty())
+            return "Press Mark counters (or Log step) first: \"Changed only\" shows what changed since then.";
+        juce::StringArray kept;
+        for (const auto& l : changedOnly ? changedLines : juce::StringArray::fromLines (text))
+            if (filter.isEmpty() || l.containsIgnoreCase (filter))
+                kept.add (l);
+        if (changedOnly && kept.isEmpty())
+            return "Nothing changed since " + markTime + ".";
+        return (changedOnly ? "Changed since " + markTime + ":\n\n" : juce::String()) + kept.joinIntoString ("\n");
+    }
+
+    // Replaces a read-only editor's text without moving it back to the top. Leaves it alone
+    // while some of it is selected, so it can be copied.
+    static void setTextKeepingScroll (juce::TextEditor& e, const juce::String& text)
+    {
+        if (e.getText() == text || ! e.getHighlightedRegion().isEmpty())
+            return;
+        juce::Viewport* viewport = nullptr;
+        for (auto* c : e.getChildren())
+            if ((viewport = dynamic_cast<juce::Viewport*> (c)) != nullptr)
+                break;
+        const auto position = viewport != nullptr ? viewport->getViewPosition() : juce::Point<int>();
+        e.setText (text, false);
+        if (viewport != nullptr)
+            viewport->setViewPosition (position);
     }
 
     juce::String statsText() const
@@ -577,6 +845,7 @@ private:
         const auto& y = session->getSync().stats();
         juce::String t;
 
+        changedLines.clear();
         if (session->getPlugin() == nullptr)
             return "No plugin loaded.";
 
@@ -584,13 +853,15 @@ private:
           << (int) h.params.size() << " parameters synced, of " << session->getInstance()->getParameters().size()
           << " the plugin reports\n\n";
 
+        t << stateText() << "\nPARAMETERS\n";
+
         t << "                         now     peak\n";
         for (auto& r : rates.rows)
             t << juce::String (r.name).paddedRight (' ', 22) << juce::String (r.now, 0).paddedLeft (' ', 8)
               << juce::String (r.peak, 0).paddedLeft (' ', 9) << "\n";
 
-        auto line = [&t] (const char* name, std::uint64_t v) { t << juce::String (name).paddedRight (' ', 38) << (juce::int64) v << "\n"; };
-        t << "\n";
+        auto line = [this, &t] (const char* name, std::uint64_t v) { t << counterLine (name, v) << "\n"; };
+        t << "\n" << juce::String().paddedRight (' ', 38) << markColumnTitle();
         line ("plugin reports, total", s.rawValueEvents);
         line ("  of them off the message thread", s.rawValueEventsOffMessageThread);
         line ("gesture reports", s.rawGestureEvents);
@@ -618,6 +889,55 @@ private:
         return t;
     }
 
+    /** The plugin's saved state (#13). */
+    juce::String stateText() const
+    {
+        auto& state = session->getState();
+        const auto& s = state.getStats();
+        const auto& y = state.getSync().stats();
+        const auto& last = state.lastRead();
+        juce::String t;
+        const auto blank = juce::String().paddedRight (' ', markTime.isEmpty() ? 0 : 8);
+        auto line = [&t, &blank] (const juce::String& name, const juce::String& v) { t << name.paddedRight (' ', 38) << blank << v << "\n"; };
+        auto count = [this, &t] (const juce::String& name, std::uint64_t v) { t << counterLine (name, v) << "\n"; };
+        auto kib = [] (std::uint64_t v) { return juce::String ((double) v / 1024.0, 1) + " KiB"; };
+
+        t << "STATE: " << (state.enabled ? "synced" : "not synced") << ", " << detectBox.getText().toLowerCase()
+          << (state.getSync().isNoisy() ? "; NOISY: it changes with nothing done, so it is not polled" : "") << "\n"
+          << juce::String().paddedRight (' ', 38) << markColumnTitle();
+        count ("hints: setDirty", s.hintSetDirty);
+        count ("hints: restart / program", s.hintRestart);
+        count ("hints: unchanged parameter reports", s.hintSameValues);
+        count ("hints: mouse let go in the window", s.hintWindow);
+        count ("changes found here", y.localChanges);
+        count ("  with no hint or activity", y.unprompted);
+        count ("taken as settling after a load", y.absorbedSettling);
+        count ("taken as others' parameters", y.absorbedRemoteParams);
+        count ("announced", s.announcesSent);
+        count ("  changes here replaced by someone else's", y.replacedHere);
+        count ("received", y.received);
+        count ("  older, ignored", y.stale);
+        count ("  already had it (same hash)", y.matched);
+        count ("  fetched", y.fetches);
+        count ("  applied", s.applies);
+        for (const auto& [outcome, n] : s.outcomes)
+            count ("    " + outcome, n);
+        count ("parameters it changed silently", y.paramsDiscovered);
+        count ("parameters put back after a load", y.paramsPutBack);
+        count ("files named but not on this machine", s.pathsMissingHere);
+        t << "\n";
+        line ("size now", kib (last.bytes.getSize()) + " (component " + kib (last.componentBytes) + ", controller " + kib (last.controllerBytes) + ")");
+        line ("reads", juce::String ((juce::int64) y.reads) + ", " + juce::String (y.reads > 0 ? y.readMsTotal / (double) y.reads : 0.0, 2)
+                      + " ms on average, " + juce::String (y.readMsMax, 2) + " ms at most; polling every "
+                      + juce::String (state.getSync().pollIntervalMs(), 0) + " ms");
+        line ("applying", juce::String (s.applies > 0 ? s.applyMsTotal / (double) s.applies : 0.0, 1) + " ms on average, "
+                          + juce::String (s.applyMsMax, 1) + " at most");
+        line ("last transfer", kib (s.lastRawSize) + ", " + kib (s.lastCompressedSize) + " compressed, " + juce::String (s.lastTransferMs, 0) + " ms");
+        line ("state data sent / received", kib (s.dataBytesSent) + " / " + kib (s.dataBytesReceived));
+
+        return t;
+    }
+
     void saveReport()
     {
         if (session->getPlugin() == nullptr)
@@ -638,6 +958,10 @@ private:
 
         t << "```\n";
 
+        const auto history = session->getState().history();
+        if (! history.isEmpty())
+            t << "\nState events:\n\n```\n" << history.joinIntoString ("\n") << "\n```\n";
+
         if (eventLogFile.existsAsFile())
             t << "\nEvent log: " << eventLogFile.getFileName() << "\n";
 
@@ -655,23 +979,44 @@ private:
         MainComponent& owner;
     };
 
+    struct MouseTimer final : juce::Timer
+    {
+        explicit MouseTimer (MainComponent& o) : owner (o) {}
+        void timerCallback() override { owner.watchMouse(); }
+        MainComponent& owner;
+    };
+
     te::Engine engine;
     juce::String member;
     std::unique_ptr<PluginSession> session;
     spike::Link link;
     int connections = 0;
 
-    juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, automationButton,
-                     reportButton, peaksButton;
-    juce::ToggleButton muteButton, logButton;
-    juce::TextEditor portEditor, addressEditor, filterEditor, statsView, logView;
+    juce::TextButton loadButton, windowButton, playButton, hostButton, joinButton, sweepButton, holdButton, automationButton,
+                     reportButton, peaksButton, markButton, sendStateButton, readStateButton;
+    juce::ToggleButton muteButton, logButton, stateButton;
+    juce::ComboBox detectBox;
+    bool pressedInWindow = false;
+    juce::TextEditor portEditor, addressEditor, filterEditor, statsFilter, statsView, logView;
+    // Counter values when Mark was pressed, by line name; statsText() fills them while capturing.
+    mutable std::map<juce::String, std::uint64_t> markBase;
+    mutable bool capturingMark = false;
+    juce::String markTime;
+    // Counter lines that changed since the mark, filled by statsText().
+    mutable juce::StringArray changedLines;
+    juce::TextButton stepButton;
+    juce::ToggleButton changedButton;
+    juce::File stepsFile;
+    int stepNumber = 0;
+    juce::int64 logLinesAdded = 0, markLogLines = 0;
     juce::ComboBox throttleBox, echoBox;
-    juce::Label statusLabel;
+    juce::Label statusLabel, othersLabel;
     juce::ListBox list;
     std::vector<size_t> visible;
     juce::StringArray logLines;
 
     std::unique_ptr<juce::FileChooser> chooser;
+    juce::File lastPluginFolder;
     std::unique_ptr<PluginWindow> pluginWindow;
     juce::File eventLogFile;
 
@@ -680,8 +1025,9 @@ private:
 
     Rates rates;
     SweepTimer sweepTimer { *this };
+    MouseTimer mouseTimer { *this };
     juce::String sweepId;
-    int sweepStep = 0;
+    int sweepStep = 0, sweepSteps = 200;
     float sweepFrom = 0.0f, sweepTo = 0.0f;
 };
 
@@ -696,6 +1042,20 @@ public:
     void initialise (const juce::String&) override
     {
         const auto args = getCommandLineParameterArray();
+
+        if (args.contains ("--probe-state"))
+        {
+            setApplicationReturnValue (spike::runStateProbe (args));
+            quit();
+            return;
+        }
+
+        if (args.contains ("--self-test-state"))
+        {
+            setApplicationReturnValue (spike::runStateSelfTest (args));
+            quit();
+            return;
+        }
 
         if (args.contains ("--self-test"))
         {
