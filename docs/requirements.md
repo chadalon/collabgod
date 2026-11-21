@@ -1,6 +1,6 @@
-# Requirements (v0.8)
+# Requirements (v0.9)
 
-Seventy-five requirements across ten areas. Issues refer to these IDs.
+Seventy-seven requirements across ten areas. Issues refer to these IDs.
 
 Priority:
 
@@ -24,6 +24,8 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 
 **Hardware and controllers** (raised 2026-11-19, #125 to #131). A pad controller or keyboard should work the moment it is plugged in, the way it does in FL Studio or Ableton, and never interrupt playback. v1 aims for controllers that play the armed track with no setup and MIDI learn for any control (HW-1 to HW-3). Ready-made profiles for known controllers, a pad-driven step sequencer and pad lights that follow the lobby are later (HW-4 to HW-6). Mappings belong to the person, not the project: moving a mapped knob makes an ordinary edit, which syncs as any other edit does.
 
+**Several people on one plugin** (decided 2026-11-20, #13). It should feel like two people at one synth. Each sees which plugin the other has up and what they are touching (LOB-10), and nobody is locked out of anything: if one loads a preset while the other turns a knob, the preset loads and the person turning keeps that knob (PLG-10). Another member's preset load should sound no worse to you than it did to them (NFR-4). In the #13 spike, Serum 2 fell silent for about 4 s on the copy that received a preset, though not on the copy where it was chosen, so this is not met yet.
+
 **Lobby size and identity** (decided 2026-11-12, issue #94, ADR-0006 and ADR-0007). Nothing in the protocol, the session format or the model assumes two people. The relay limits how many are connected at once, and v1 sets that to two and is tested with two. A person is a member of the project, saved in the project, and stays the same person across connections. There are no accounts in v1: identity belongs to one install of the app. Requirements below that say "both" or "the other person" describe two people, the tested case.
 
 ## Lobby and presence
@@ -39,6 +41,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | LOB-7 | Each person is a member with a stable identity, and the member list is saved in the project. A dropped connection removes their presence, not their membership, and they return as the same person. See ADR-0006. | Must |
 | LOB-8 | The relay limits how many people are connected to a lobby at once. The limit is a relay setting, and v1 is tested with two. | Must |
 | LOB-9 | Anyone in the lobby can see who made a clip, a note or an edit. | Should |
+| LOB-10 | Everyone sees which plugin windows each member has open and the controls they are touching, colour-coded. | Must |
 
 ## Live playing
 
@@ -57,7 +60,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | --- | --- | --- |
 | HW-1 | Plugging in or removing a MIDI device never stops or interrupts playback. | Must |
 | HW-2 | Any class-compliant MIDI keyboard or pad controller plays the armed or selected instrument track as soon as it is connected, with no setup. Velocity, pitch bend, mod wheel and sustain work. | Should |
-| HW-3 | Any mixer control, transport control or plugin parameter can be mapped to a knob, fader, button or pad by selecting the control and moving the hardware (MIDI learn). Mappings belong to the person and their device, are kept on their own install and never enter the project or the edit log. | Should |
+| HW-3 | Any mixer control, transport control or plugin parameter can be mapped to a knob, fader, button or pad by selecting the control and moving the hardware (MIDI learn). Mappings belong to the person and their device, are kept on their own install and never enter the project or the edit log. A mapped control counts as held while it moves and as let go after a short pause, as a mouse drag does (PLG-10). | Should |
 | HW-4 | Known controllers are recognised and load a ready-made profile with no setup, including two-way feedback such as pad lights and displays. Profiles are files in a documented format that anyone can add. | Later |
 | HW-5 | A pad grid can drive a step sequencer and a drum layout: pads play and select drum slots, and steps are entered and shown on the pads. | Later |
 | HW-6 | Controller feedback follows the lobby: pad lights and displays show other members' edits and live playing in their colours. | Later |
@@ -89,6 +92,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | PLG-7 | A version mismatch between the two installs is detected and shown before the plugin is used. | Should |
 | PLG-8 | A plugin crash does not take down the session. | Later |
 | PLG-9 | A track using an unshared plugin can be bounced to audio for the other person, and switched back for edits. | Later |
+| PLG-10 | Nobody is locked out of a plugin. If one member loads a preset while another turns a knob, the preset loads and the person turning keeps that knob. A hidden edit in progress, such as an LFO shape, is replaced by the preset. | Must |
 
 ## Samples
 
@@ -134,7 +138,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | NFR-1 | An edit appears for the other person within 150 ms on a typical home connection. | Must |
 | NFR-2 | An idle lobby uses less than 10 kbps. | Should |
 | NFR-3 | The audio thread never waits on the network, the disk or the interface. | Must |
-| NFR-4 | A remote edit never causes an audio dropout. | Must |
+| NFR-4 | A remote edit never causes an audio dropout. That includes another member's preset load: it sounds no worse to you than it did to them. | Must |
 | NFR-5 | Indexing a 100,000-file library never blocks the app, and later scans only read changed files. | Should |
 | NFR-6 | Plugin files never leave a machine. Sample files go only to members of the lobby. | Must |
 | NFR-7 | All lobby traffic is encrypted in transit. | Must |
