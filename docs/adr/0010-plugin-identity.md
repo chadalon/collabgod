@@ -1,6 +1,6 @@
 # ADR-0010: A plugin is identified by its VST3 class ID, scanned out of process
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-14
 - **Deciders:** Chad
 

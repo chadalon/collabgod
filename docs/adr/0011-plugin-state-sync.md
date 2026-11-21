@@ -1,6 +1,6 @@
 # ADR-0011: Plugin state syncs as a content-addressed snapshot, announced by hash
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-15
 - **Deciders:** Chad
 
