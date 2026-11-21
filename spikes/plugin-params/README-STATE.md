@@ -19,10 +19,10 @@ It builds on the parameter spike in the same folder, because state and parameter
 
 The rules are in `src/core/StateSync.*`, plain C++ with no JUCE, beside the parameter rules and on the same Lamport clock.
 
-1. **The hidden part of a plugin is one value.** The newest announced state wins as a whole, ordered by stamp. Two people changing it at once do not merge: the one announced later wins, and if a state arrives while a change here is still waiting to be announced, ours goes out at once with a newer stamp. Nothing assumes two people.
+1. **The hidden part of a plugin is one value.** The newest announced state wins as a whole, ordered by stamp. There is no merging inside a state. A state from someone else that arrives while a change here has not gone out yet replaces that change: it is loaded once nobody here holds a control, and any parameter changed here since its sender read it, the held one included, is set back on top. So a person keeps the knob in their hand and everything else follows the other person's preset; a hidden edit here that had not gone out (an LFO shape) is lost to it ([the decision](#decision-a-knob-turned-while-someone-elses-state-arrives)). This copy never answers with its own whole state. Two states announced at the same moment, each before its sender saw the other's, are ordered by stamp. Nothing assumes two people.
 2. **Parameters keep their own order.** A state travels with its sender's parameter values and stamps from when it was read. After loading it, a parameter someone changed since then is set back to the newer value. A parameter the loaded state holds differently from its sender's snapshot was changed by the plugin without telling the host: it counts as written at the state's stamp and is sent on as a parameter change, so the sender's host learns it too.
 3. **Changes are found by reading.** The host reads the state (`getStateInformation`) and hashes it when something hints that it changed: the plugin calls VST3 `setDirty`, restarts or changes program, floods the host with parameter reports that change nothing (what Serum 2 does while an LFO is edited), or the person lets go of the mouse in the plugin's window. Polling can be added, all the time or only while the window is open; it slows itself down so reads take at most 2 % of the time.
-4. **A change is announced once it is still.** The state must read the same for 300 ms, with no parameter moved here for 100 ms and no control held, and the parameter snapshot that goes with it is taken at that read. A burst of edits becomes one announcement.
+4. **A change is announced once it is still.** The state must read the same for 300 ms, with no parameter moved here for 100 ms and no control held, and the parameter snapshot that goes with it is taken at that read. A control someone else is holding does not hold it back (see the decision under rule 1). A burst of edits becomes one announcement.
 5. **An announcement carries the hash, not the bytes.** A member whose plugin already saves that hash fetches nothing: the change was only parameters, which parameter sync carried. Otherwise it reads once more after 150 ms (a value set on a plugin reaches its saved state only when it next processes audio) and then asks for the bytes.
 6. **The bytes go only to whoever asks**, zlib-compressed, in chunks, paced so parameter messages are not stuck behind them. The receiver checks the SHA-256, waits while someone here holds a control, then loads them.
 7. **Loading never echoes.** For 1.5 s after a load (or two polling intervals, if longer), changes in the state are the plugin settling, not news, unless a person does something here first. A change seen straight after parameters arrived from someone else, with nothing done here, is those parameters. A plugin whose state differs on every read with nothing done is marked noisy and is not polled (changes that follow others' parameters do not count); its changes go out from the first read after nothing has been done for the quiet period. If a load put an older value into a parameter and the newer one was set back, the plugin reporting the older value later is an echo, and the newer one is set again: the first such report within 30 s, once.
@@ -127,7 +127,7 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
    - **Reads are on the message thread** (VST3 requires it; JUCE takes the message manager lock), and they scale with the state: 0.07 ms for 266 bytes, about 20 ms for 1.3 MiB, 120 to 150 ms for 10.7 MiB on this machine. A 150 ms read is a visible hitch in the interface. Polling is budgeted to 2 % of the time, so a 10 MiB state is read about every 7 seconds; a 266 byte one every 500 ms.
    - **A hash says something changed, not what.** Every knob move changes it too. Finding 3 is how that costs nothing.
    - **Some states change with nothing done** (a counter, a time). Two reads in a row at load time, and four unprompted changes in a row later, mark such a plugin noisy, and it is then not polled. The self-test's noisy plugin was caught and sent nothing.
-   - **Polling cannot tell a person's edit from the plugin settling after a load.** With no signal at all, the random test first lost an edit in 2.5 to 7 % of runs (2,000 runs each for 2, 3 and 4 members). Most of that was a rules bug, not this limit: parameters arriving from others counted as the plugin changing by itself, so busy members were wrongly marked noisy and stopped polling (finding 18). With that fixed, no run of 2,000 lost an edit. An edit made in the 1.5 s after a state arrives, with no sign of a person, can still be taken as settling; it is now rare enough that the random test does not hit it.
+   - **Polling cannot tell a person's edit from the plugin settling after a load.** With no signal at all, the random test first lost an edit in 2.5 to 7 % of runs (2,000 runs each for 2, 3 and 4 members). Most of that was a rules bug, not this limit: parameters arriving from others counted as the plugin changing by itself, so busy members were wrongly marked noisy and stopped polling (finding 18). With that fixed, no run of 2,000 lost an edit. Since the decision on a knob turned during someone else's state (incoming states now always load, so they load more often), an edit made in the 1.5 s after one arrives, with no sign of a person, is again sometimes taken as settling: 2 to 4.5 % of runs lost one, with only `setDirty` or with no signal at all. With the mouse seen in the window or a parameter moved here, still none.
 
    So the detector worth building is generic but layered: hints when the plugin gives them (`setDirty`, a restart, a burst of unchanged parameter reports), the mouse let go in the plugin's window (the host asks the system for the button state and pointer position, so it works whatever the plugin's interface is), and polling only while the plugin's window is open, budgeted by read cost. The mouse covers what Serum 2 is known to leave unreported; whether Serum calls `setDirty` at all is in the checklist. JUCE turns `restartComponent` flags into one "program changed" signal, so the host cannot tell a restart for parameter values from one for latency; the product, if it talks to VST3 directly, can.
 
@@ -254,11 +254,45 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
 - **Tell "already held this" from a refusal, as far as the host can.** Between plugin versions, a state whose parameters arrived first changes nothing when loaded, and was reported as not loaded (finding 17). Unchanged state with every parameter equal to the sender's is not a refusal, as far as the host can tell; a refused hidden part looks the same, which the flag at join covers.
 - **Send both the component and the controller state.** Three plugins on the Mac keep everything in the controller state (finding 15).
 
-### Open: a knob turned while someone else's state arrives
+### Decision: a knob turned while someone else's state arrives
 
-Say A is turning a knob in a plugin's window while B loads a preset in the same plugin. A's copy has usually already found its own state changed (polling runs while the window is open), so the rules see two hidden changes: A does not load B's preset, sends its own whole state with a newer stamp, and B loads it. Both copies agree, but B's preset is gone from both, and no one is told. If A's copy had not read its state yet, it waits until A lets go, loads B's preset and sets A's newer parameters back on top: both edits survive.
+Decided by the maintainer on 20 November 2026: **if I am turning a knob in a plugin while another member changes the preset in the same plugin, my knob stays in my control and everything else follows their preset.**
 
-The alternative is to always do the second: load the newcomer and put this side's newer parameters back, unless there is evidence of a hidden change here. Against a real hidden edit (an LFO shape) one edit is lost either way, so it is never worse at keeping work. But it can mix a knob value meant for the old preset into the new one, and A's sound changes when they let go. Showing who has a plugin's window open, or a soft lock while someone edits a plugin, might make the case rare enough for "newest wins" alone. That is a product decision; not built or tested.
+How the spike does it (rule 1):
+
+- The incoming state is fetched as usual, but it is not loaded while anyone on this copy holds a control. Nothing this copy changed is announced while it waits, even if polling has already seen this copy's state change from the knob turn alone. Before the decision, this copy answered with its whole state and a newer stamp, which replaced the other person's preset on both copies.
+- When the person lets go, their final value goes out as a parameter change, the incoming state loads, and the held parameter, with any other parameter changed here since the sender read its state, is set back on top. Parameter sync already gave the other copy the knob value, so both copies end on the same bytes and nothing is announced back.
+- The same applies when no control is held: a change here that has not gone out yet is replaced by the newcomer, and its parameters are set back on top.
+- **The other copy must be able to announce while the knob keeps moving.** Before, a change waited for every parameter to be still, including ones moved from elsewhere, so B's preset could not go out until A let go, and then raced A's own. Now a control someone else is holding does not hold back a change here: B's state follows A's moving knob without restarting its quiet period, and goes out about 0.3 s after the preset. A parameter someone else is holding is left to parameter sync on every copy that loads the state (its newest known value is set back), because the bytes may be a block behind the hand.
+
+Tested by two rules tests (`the decision on #13: A holds a knob while B loads a preset...`, which fails on the old rules, and `a change here not yet announced is replaced...`) and by step 7b of the self-test, where A keeps turning Level from the host for 3 s while B changes its wavetable. B's change goes out while A is still turning; A loads it only after letting go; A keeps 0.42, both copies get B's wavetable and save the same bytes, A announces nothing, and B loads nothing back. The rules test turns the knob continuously too, and fails if a held knob elsewhere still holds back B's announcement.
+
+**Check it by ear** (two copies on one machine; one mouse cannot hold a knob in one copy and click in the other, so **Hold 8 s** in the app holds a control from the host for eight seconds, sweeping it slowly. The rules treat it like a knob held in the plugin's window):
+
+1. Start two copies as in [`README.md`](README.md#1-start-two-copies): A hosts, B joins. Load the same plugin in both, leave **Sync state** on with **Hints, and poll while the window is open**, open both plugin windows, and press **Play** in both. Press **Log step** in both.
+2. Load a factory preset (P1) in A and wait until B shows it. Choose a second preset (P2) that sounds clearly different.
+3. In A's parameter list, select a parameter that P2 also sets: for Serum 2 a filter cutoff (type `cutoff` in the filter box), for Pro-Q 3 `Band 1 Gain` (P2 must use band 1). Note its value in A.
+4. Tick **Mute this one** in B, so you hear A.
+5. Press **Hold 8 s** in A. Within the next two seconds, load P2 in B's plugin window. Then listen and watch until the 8 seconds are over, and a few seconds more.
+6. Press **Log step** in both. Untick B's mute and tick A's, then compare by switching.
+
+What you should hear and see:
+
+| | Copy A (holding) | Copy B (loaded P2) |
+| --- | --- | --- |
+| During the hold | Still P1, by name and sound. The held parameter keeps sweeping smoothly. No gap | P2 by name at once. Its copy of the held parameter follows A's sweep, not P2's own value |
+| When the hold ends | Loads P2 (Serum 2 shows P2's name; Serum 2 goes silent for about 4 s while it loads, finding 12; Pro-Q 3 shows P2's bands with no gap). The held parameter stays at the sweep's end value | Nothing changes. It does not go back to P1 |
+| Afterwards | P2 with A's value for the held parameter. Same as B by ear | The same |
+| Counters, from **Log step** | `announced` did not rise during the step; `applied` rose by 1; `changes here replaced by someone else's` may rise by 1 | `announced` rose by 1; `applied` did not rise |
+
+The old behaviour, for comparison: at the end of the hold, B went back to P1 (with A's value), and B's `applied` rose. Also try the same step with nothing held: load P3 in B while A is idle. A should follow at once.
+
+**Known limits:**
+
+- **A hidden edit in progress here is lost to the incoming state.** An LFO shape being dragged, or a wavetable picked a moment before the other person's preset arrives, is replaced by it, with no merging. Accepted.
+- **Should the person be told?** Open, for the maintainer. The rules count it (`replacedHere`, shown in the app as "changes here replaced by someone else's") but nothing tells the person.
+- **Two announcements crossing.** If this copy announced a knob-only state just before the other person's preset reached it, the two are ordered by stamp, and this copy's can win and replace the preset. That needs both announcements in flight at once, within the time a message takes between the copies, in the few hundred milliseconds after the knob is let go. Not seen in the tests.
+- **Edits in the moments after a load** with no sign of a person are taken as the plugin settling more often than before, because incoming states now always load (finding 2, 2 to 4.5 % of simulated runs with only `setDirty` or no signal).
 
 ## What is left (needs the maintainers' machines)
 
@@ -276,6 +310,8 @@ The alternative is to always do the second: load the newcomer and put this side'
 - [x] A plugin that names a file, with that file missing: Serum 2's imported wavetable (finding 12). A sampler or library is #117.
 - [x] At least one version pair from #14, both directions: Pro-Q 3 3.2.7.0 and 3.2.9.0 (finding 17).
 - [ ] Listen to the pair newer to older: presets loaded on the Mac, each copy muted in turn.
+- [ ] Check the decision on a knob held during someone else's preset by ear, with Serum 2 and Pro-Q 3 (steps under "Decision" above).
+- [ ] Decide whether a person should be told when their hidden edit was replaced by someone else's state (open).
 - [ ] Then: fill the table, settle the recommendation, and move ADR-0011 and ADR-0010's flag-or-block question on.
 
 ## Not covered
