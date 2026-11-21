@@ -34,7 +34,12 @@ void StateSync::loaded (const std::string& hash, std::uint64_t size)
 void StateSync::hint (double nowMs)
 {
     ++counters.hints;
-    lastHintMs = nowMs;
+
+    // A plugin hints as it takes a loaded state (a restart, setDirty), and on a
+    // busy machine those hints can come seconds later. While it settles, a hint
+    // still schedules a read, but it is not taken as a sign of a change here.
+    if (nowMs >= settleUntilMs)
+        lastHintMs = nowMs;
     const double at = nowMs + opts.hintDelayMs;
     readAtMs = readAtMs ? std::min (*readAtMs, at) : at;
 }
@@ -42,6 +47,13 @@ void StateSync::hint (double nowMs)
 void StateSync::localActivity (double nowMs)  { lastLocalMs = nowMs; }
 void StateSync::remoteActivity (double nowMs, bool heldElsewhere)
 {
+    // Values set back after a load, or its late echoes set right, are part of
+    // the load: the plugin keeps settling for a while after the last of them.
+    // Someone else's held control is a person playing, not the load: it does
+    // not extend it, and nothing extends it past 10 s after the load.
+    if (nowMs < settleUntilMs && ! heldElsewhere)
+        settleUntilMs = std::min (std::max (settleUntilMs, nowMs + opts.settleMs), appliedAtMs + 10000.0);
+
     lastRemoteMs = nowMs;
     if (! heldElsewhere)
         lastRemoteLooseMs = nowMs;
@@ -67,6 +79,14 @@ bool StateSync::readDue (double nowMs, bool pollAllowed) const
         return true;
 
     return pollAllowed && ! noisy && nowMs - lastReadMs >= pollIntervalMs();
+}
+
+bool StateSync::localEvidenceSince (double t) const
+{
+    // A hint within a moment of values set from elsewhere is the plugin answering
+    // them (on a busy machine, the late reports of a load), not a change made here.
+    const bool hintHere = lastHintMs > t && std::abs (lastHintMs - lastRemoteMs) >= 50.0;
+    return lastLocalMs > t || hintHere;
 }
 
 double StateSync::confirmAtMs() const
@@ -150,7 +170,7 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
     }
 
     if (pending && hash != pending->hash && hash != base && lastRemoteMs > prevReadMs
-        && lastLocalMs <= prevReadMs && lastHintMs <= prevReadMs)
+        && ! localEvidenceSince (prevReadMs))
     {
         // The change here is still, but parameters from someone else keep moving
         // its state (a knob they hold while this copy loaded a preset). Follow
@@ -213,7 +233,7 @@ void StateSync::observed (const std::string& hash, std::uint64_t size, double re
         return;
     }
 
-    if (lastRemoteMs > prevReadMs && lastLocalMs <= prevReadMs && lastHintMs <= prevReadMs)
+    if (lastRemoteMs > prevReadMs && ! localEvidenceSince (prevReadMs))
     {
         // Parameters arrived from someone else since the last read, and nothing
         // was done here: the state changed because of them, and parameter sync

@@ -259,7 +259,7 @@ void ruleTests()
 
         // The same with a hint from the plugin: that is a change made here.
         b.state.remoteActivity (3010.0);
-        b.state.hint (3020.0);
+        b.state.hint (3100.0);   // not within a moment of the remote values: within 50 ms it would be the plugin answering them
         auto out = b.run (3001.0, 4000.0, "h0+lfo", true);
         CHECK (out && out->ref.hash == "h0+lfo");
     });

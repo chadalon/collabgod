@@ -40,7 +40,7 @@ Between a Windows PC and a Mac, two people editing Pro-Q 3 at the same moment en
 
 ## Consequences
 
-- A preset, an LFO shape or a wavetable follows within about a second when the plugin hints or the person uses its window; a plugin that does neither is found by polling, more slowly, and an edit made in the moments after another member's state arrives, with no sign of a person, can be taken as the plugin settling (2 to 4.5 % of the spike's simulated runs with only `setDirty` or no signal at all; none when a person's input is seen).
+- A preset, an LFO shape or a wavetable follows within about a second when the plugin hints or the person uses its window; a plugin that does neither is found by polling, more slowly, and an edit made in the moments after another member's state arrives, with no sign of a person, can be taken as the plugin settling (2.5 to 6 % of the spike's simulated runs with only `setDirty` or no signal at all; none when a person's input is seen).
 - Two people changing the same plugin's hidden part at once do not merge: one wins. A hidden edit in progress is lost to a state that arrives during it, and the person is not told (open). With Serum 2 this once left the two copies showing different LFO shapes although their saved states were equal, which the host cannot detect.
 - Each state load can silence the receiving plugin for a few seconds (Serum 2: about 4 s). A knob turn does not load, but a preset or another hidden change does, and the other person hears the gap.
 - The parameter wire format is bound to exactness: a format that rounds values makes every knob turn a state load.

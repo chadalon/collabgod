@@ -213,6 +213,7 @@ private:
     StateOffer announce (const std::string& hash, std::uint64_t size, ParamSync::Snapshot);
     bool prompted (double nowMs) const;
     double confirmAtMs() const;
+    bool localEvidenceSince (double t) const;
 
     ParamSync& params;
     ReadParams readParams;

@@ -260,7 +260,10 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
                + ", sent as " + kib (st (a).dataBytesSent) + " of JSON so far; synced " + juce::String (ms, 0) + " ms after the change; transfer "
                + juce::String (st (b).lastTransferMs, 0) + " ms at 32 KiB a tick; apply "
                + juce::String (st (b).applyMsMax, 1) + " ms at most; read on A "
-               + juce::String (a.session.getState().lastRead().readMs, 2) + " ms");
+               + juce::String (a.session.getState().lastRead().readMs, 2) + " ms; B fetched "
+               + juce::String ((juce::int64) b.session.getState().getSync().stats().fetches) + ", dropped as superseded "
+               + juce::String ((juce::int64) b.session.getState().getSync().stats().superseded) + ", load deferred while held "
+               + juce::String ((juce::int64) b.session.getState().getSync().stats().appliedDeferred) + " times");
     }
     a.session.getState().bytesPerTick = 512 * 1024;
     setTest (a, "Test: embedded data", 0.0f);
