@@ -15,6 +15,9 @@
 #include "Harness.h"
 #include "SelfTest.h"
 
+#include <bit>
+#include <cstdint>
+
 namespace
 {
 using namespace spike::harness;
@@ -93,7 +96,7 @@ int run (const juce::File& v1, const juce::File& v2, const juce::File& logDir)
         spike::decode (spike::encodeBatch (out), h, in, sm, pr);
         int exact = 0;
         for (size_t i = 0; i < in.changes.size() && i < out.changes.size(); ++i)
-            exact += in.changes[i].value == out.changes[i].value ? 1 : 0;
+            exact += std::bit_cast<std::uint32_t> (in.changes[i].value) == std::bit_cast<std::uint32_t> (out.changes[i].value) ? 1 : 0;
         check (exact == 1000, "parameter values arrive exactly", juce::String (exact) + " of 1000");
     }
 
