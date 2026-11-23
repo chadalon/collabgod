@@ -16,7 +16,8 @@ One rule decides every such control: **what only changes what you hear is yours;
 
 - **The loop range is personal**, like the playhead.
 - **The metronome is personal.**
-- **Solo is personal.** It is for auditioning. **Mute is shared**, because it is part of the mix.
+- **Mute is shared.** It is a statement about the song: this track is not in the mix. It is saved with the project and everyone sees it.
+- **Solo is personal.** It is a question about the song: what does this sound like alone? It is temporary and was never meant to be part of the track. Solo works by silencing everything else, which is why it cannot be shared: one person auditioning a track would cut what the other is working on.
 - **In follow mode the member being followed drives.** A follower gets that member's playhead, play and stop, and loop range. A follower who seeks, plays, stops or changes the loop range leaves follow mode and is back on their own transport.
 
 The shared version of a personal control comes through follow mode, not through a second set of controls: to loop the same bars as someone, follow them.
@@ -30,7 +31,9 @@ The shared version of a personal control comes through follow mode, not through 
 ## Consequences
 
 - Personal controls are presence or local state, never operations. They do not enter the ordered edit log (ADR-0004) and are not undoable. A person's loop range is sent as presence so that followers can use it and others can see it.
-- Mute is an operation, like any other change to the mix.
+- Mute is an operation, like any other change to the mix. Solo is not, and is not saved with the project.
+- There is no personal mute ("mute this just for me") in v1. Solo covers most of the need, and one could be added later without changing the rule.
+- Whether an export follows the exporting person's solos is not decided here. It belongs to the export work in Phase 4 (#65).
 - Nothing here assumes two people: a member follows one other member, and any number can follow the same one (ADR-0006).
 - Whether personal state is remembered between sessions, and where, is for the issues that build it. It is not saved as part of the shared session.
 - The interface has to show that you are following, whom, and that touching the transport will stop it.
