@@ -12,7 +12,7 @@ It builds on the parameter spike in the same folder, because state and parameter
 | A way to detect that non-parameter state changed, or a fallback such as periodic state hashing | **Built and measured**: hints from the plugin, the mouse let go in its window, and budgeted polling with hashing. How generic it can be: finding 2. Serum 2's own hints were enough (finding 12) |
 | State size measured for Serum 2 and at least two other plugins | **Measured** on Windows for Serum 2 and 27 others (finding 11), and on the Mac for 18 plugins (finding 15) |
 | Behaviour when a preset references a file the other machine lacks is documented | **Documented for the test VST3, and the host detects it** (finding 8). **Serum 2** keeps only a reference to an imported wavetable and opens its own Missing Files dialog; the host did not see the path (finding 12). Samplers and libraries: #117 |
-| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Proposed), with Serum 2's, Pro-Q 3's and Sylenth1's results, and the Mac and two machines (findings 15 to 20), and the held-knob decision checked with Pro-Q 3 and Serum 2 (finding 21) |
+| Recommendation written for PLG-6 | **Written** ([below](#recommendation-for-plg-6) and [ADR-0011](../../docs/adr/0011-plugin-state-sync.md), Accepted), with Serum 2's, Pro-Q 3's and Sylenth1's results, and the Mac and two machines (findings 15 to 20), and the held-knob decision checked with Pro-Q 3 and Serum 2 (finding 21) |
 | Plugin versions (the comment on the issue) | **The harness classifies every load** (finding 9); the test VST3 shows a silent refusal. **Pro-Q 3 3.2.7.0 and 3.2.9.0 sync both ways** and sounded the same in both directions; the classification gave a false "not loaded" between versions (finding 17), now fixed (finding 19). **Pro-L 2 2.2.4.0 into 2.2.6.0** loaded exactly every time (finding 20) |
 
 ## How state sync works
@@ -263,7 +263,7 @@ Findings 1 to 10 are from a cloud session on Linux (2 cores) with the test VST3 
 
 ## Recommendation for PLG-6
 
-[ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Proposed) records it. The Windows probe (finding 11) and Serum 2, Pro-Q 3 and Sylenth1 by hand (findings 12 to 14) support it and add the four points from "Expect some plugins not to fit" to "Do not load in a burst". The Mac probe and Pro-Q 3 on two machines, with two people and two versions (findings 15 to 18), add three more, and Pro-L 2 on two machines (finding 20) and the held-knob check (finding 21) the last two.
+[ADR-0011](../../docs/adr/0011-plugin-state-sync.md) (Accepted) records it. The Windows probe (finding 11) and Serum 2, Pro-Q 3 and Sylenth1 by hand (findings 12 to 14) support it and add the four points from "Expect some plugins not to fit" to "Do not load in a burst". The Mac probe and Pro-Q 3 on two machines, with two people and two versions (findings 15 to 18), add three more, and Pro-L 2 on two machines (finding 20) and the held-knob check (finding 21) the last two.
 
 - **Sync the plugin's saved state as a content-addressed snapshot**: the component and controller states as raw bytes, named by SHA-256 like samples (ADR-0008), announced by hash through the relay and fetched only by those whose plugin does not already save that hash. Large states travel like samples (`spikes/sample-transfer`): chunked, resumable, as binary frames, never in front of live parameter changes.
 - **The newest state wins as a whole**, ordered with the session's other operations; parameters keep their own order and are reconciled after each load as in this spike. The announcement is an operation in the ordered log (so a late joiner gets the current state); the bytes are not.
@@ -346,7 +346,7 @@ The old behaviour, for comparison: at the end of the hold, B went back to P1 (wi
 - [x] Check the decision on a knob held during someone else's preset, with Serum 2 and Pro-Q 3 (finding 21). It holds; with Pro-Q 3 the preset's parameters arrive during the hold.
 - [x] Decide whether a person should be told when their hidden edit was replaced by someone else's state: yes (21 November 2026).
 - [x] ADR-0010's flag-or-block question: flag, do not block (21 November 2026).
-- [x] Fill the table, settle the recommendation, and update ADR-0011. ADR-0011 stays Proposed until the maintainer accepts it.
+- [x] Fill the table, settle the recommendation, and update ADR-0011. The maintainer has since accepted ADR-0011 (#138).
 - [ ] Not fixed in the spike, for the product: a preset sent as one unit (finding 20), and no sending back a loaded state on a click (finding 21).
 
 ## Not covered

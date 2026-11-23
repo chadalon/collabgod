@@ -1,7 +1,7 @@
 # ADR-0004: One ordered edit log through the relay
 
-- **Status:** Proposed
-- **Date:** 2026-11-11
+- **Status:** Accepted
+- **Date:** 2026-11-11 (accepted 2026-11-22)
 - **Deciders:** Chad
 
 ## Context
@@ -45,4 +45,11 @@ Code and full write-up: [`spikes/session-model`](../../spikes/session-model).
 
 Over a real network (issue #10, `spikes/relay`): through a relay on a cloud server with TLS, between two machines on different networks, a late joiner caught up on all earlier operations, 200 of 200 operations were ordered and answered, and the estimated one-way edit delay was 28 ms at the median and 54 ms at the 95th percentile (NFR-1 allows 150 ms). A second run with a joiner on a home connection in Park City, Utah (about 2,900 km from the relay, 79 ms ping), gave a median of 49 ms and a 95th percentile of 54 ms. Each is a single run. The convergence tests of two replicas editing at once ran over real sockets on one machine, not between two locations.
 
-Still to confirm before this record is accepted: de-duplication of operations resent after a reconnect, and, if wanted, the convergence test between two locations.
+## Outcome
+
+Accepted on 2026-11-22 at the Phase 0 review ([`docs/phase-0-review.md`](../phase-0-review.md), issue #17). No randomized run diverged, and the relay ordered every operation between two cities.
+
+Two things this record once listed as still to confirm were not done first, and move to Phase 2:
+
+- **Resending after a reconnect.** The relay already refuses to order an operation id twice. The client's half, resending its unconfirmed operations when it reconnects, is built and tested with the sync client and reconnect work (LOB-6).
+- **Convergence between two locations.** Two replicas editing at once were tested over real sockets on one machine only. The two-client lobby tests (ENG-7) and the first lobby session between the two homes cover it.

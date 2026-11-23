@@ -1,7 +1,7 @@
 # ADR-0009: Fetch C++ dependencies at configure time, pinned to a commit
 
-- **Status:** Proposed
-- **Date:** 2026-11-12
+- **Status:** Accepted
+- **Date:** 2026-11-12 (accepted 2026-11-22)
 - **Deciders:** Chad
 
 ## Context
@@ -40,3 +40,7 @@ Fetch JUCE and Tracktion Engine with FetchContent at configure time, each pinned
 ## How we will know
 
 Issue #7: the spike configures and builds from a clean checkout on GitHub's Windows and macOS runners and on both maintainers' machines. If any of them cannot fetch by commit, or the fetch is slow enough to matter, revisit.
+
+## Outcome
+
+Accepted on 2026-11-22 at the Phase 0 review ([`docs/phase-0-review.md`](../phase-0-review.md), issue #17). The pinned fetch configured and built on GitHub's Windows and macOS runners, on Chad's Windows desktop and on his Intel Mac (`spikes/engine-toolchain`), and the three later engine spikes reused it. It has not been run on the second maintainer's iMac, which is on macOS 11 (#145).

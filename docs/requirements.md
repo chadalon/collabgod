@@ -1,4 +1,4 @@
-# Requirements (v0.9)
+# Requirements (v0.10)
 
 Seventy-seven requirements across ten areas. Issues refer to these IDs.
 
@@ -8,7 +8,7 @@ Priority:
 - **Should**: in v1 if time allows.
 - **Later**: recorded so the design does not block it.
 
-Numeric targets are proposals to confirm with measurements in Phase 0.
+Numeric targets were checked against measurements at the Phase 0 review and made final on 2026-11-22 ([`phase-0-review.md`](phase-0-review.md)). The exception is NFR-2, which has not been measured and stays a proposal until Phase 2.
 
 ## v1 scope
 
@@ -127,7 +127,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | UX-1 | A documented design system of the app's own: colour, type, spacing and motion. | Must |
-| UX-2 | The timeline, meters and waveforms are drawn on the GPU and hold 60 frames a second. | Must |
+| UX-2 | The timeline, meters and waveforms are drawn on the GPU and hold 60 frames a second. Drawing works with WebGL2 alone, since WebGPU is missing on macOS before 26. | Must |
 | UX-3 | Visual effects respond to audio and to lobby events such as a join or an upload. | Should |
 | UX-4 | A first-time user places a sample and hears it within one minute of launch. | Should |
 
@@ -135,7 +135,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| NFR-1 | An edit appears for the other person within 150 ms on a typical home connection. | Must |
+| NFR-1 | An edit appears for the other person within 150 ms at the 95th percentile on a typical home connection, including while a sample is transferring. A transfer aims to add no more than 25 ms to that delay. | Must |
 | NFR-2 | An idle lobby uses less than 10 kbps. | Should |
 | NFR-3 | The audio thread never waits on the network, the disk or the interface. | Must |
 | NFR-4 | A remote edit never causes an audio dropout. That includes another member's preset load: it sounds no worse to you than it did to them. | Must |
