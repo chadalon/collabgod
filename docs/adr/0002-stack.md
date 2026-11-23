@@ -1,7 +1,7 @@
 # ADR-0002: C++ engine, TypeScript interface and session model
 
-- **Status:** Proposed
-- **Date:** 2026-11-11
+- **Status:** Accepted
+- **Date:** 2026-11-11 (accepted 2026-11-22)
 - **Deciders:** Chad
 
 ## Context
@@ -49,7 +49,7 @@ Phase 0 spikes answer these before the decision is accepted:
 - Can the TypeScript model drive Tracktion Engine for tracks, clips and plugin parameters without the two drifting?
 - Does plugin parameter and state sync work through the bridge for Serum 2 and two or three other plugins?
 
-## Findings so far
+## Findings
 
 **Issue #8, web view at 60 fps** (`spikes/webview-ui`): **confirmed.** A TypeScript page in JUCE 9's web view draws 10,000 clips with WebGL2, and Tracktion Engine streams the playhead and stereo meters to it on every display refresh. On 2026-11-14 it held 60 fps in every phase of the benchmark on both maintainer machines, with no frame over 20 ms:
 - Windows: WebView2 157, RTX 5080
@@ -83,8 +83,12 @@ The phases included panning and zooming across all clips, 256 extra meter levels
 - Different versions of a plugin synced by ID (Pro-Q 2 2.2.2.0 against 2.1.1.0, all 190 parameters matched), so a version difference can be flagged rather than block sync.
 - Presets travel as parameters only when the plugin announces them (Pro-Q 2 did, Lounge Lizard did not). Plugin state sync (#13) is needed regardless.
 
-**Issue #13, plugin state sync** (`spikes/plugin-params`, [`README-STATE.md`](../../spikes/plugin-params/README-STATE.md)): **works with a test VST3 between three members on one machine; not yet run with a real plugin.** A change to the test plugin's hidden wavetable reached the others as its saved state in about half a second, and they sounded the same; a preset that moved parameters without telling the host was found by whoever loaded it. What it means for this ADR so far:
+**Issue #13, plugin state sync** (`spikes/plugin-params`, [`README-STATE.md`](../../spikes/plugin-params/README-STATE.md)): **works with Serum 2, Sylenth1, FabFilter Pro-Q 3 and Pro-L 2, including between a Windows PC and a Mac with two people and two plugin versions; two gaps are left for the product.** A preset, an LFO shape, a modulation assignment and a wavetable each reached the other copy as the plugin's saved state within about a second. The gaps: Serum 2 is silent for about 4 s on the copy that receives a state, and two presets clicked at the same moment can end as a mix of both. Both are recorded in ADR-0011, and neither comes from the stack: any host has to load an opaque state the same way. What it means for this ADR:
 
 - The rules are pure and share the parameter rules' clock (ADR-0011), so they fit the TypeScript sync client too. The C++ side reads and loads the state, hashes it, and watches for hints.
 - VST3 state calls must run on the main thread, and a large state's read or load takes long enough to be seen there (120 to 150 ms for 10.7 MiB on a 2-core cloud machine). The engine host has to read rarely and show progress when loading a large state.
 - JUCE's VST3 host wraps the state in XML with base64 (a third larger) and does not report whether the plugin accepted it. The product should keep the component and controller states as raw bytes and check a load by reading it back.
+
+## Outcome
+
+Accepted on 2026-11-22 at the Phase 0 review ([`docs/phase-0-review.md`](../phase-0-review.md), issue #17). All three questions under "How we will know" came back yes. What the spikes found that the product must do differently is listed in that review and in each spike's README.

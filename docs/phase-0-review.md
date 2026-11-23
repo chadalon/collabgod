@@ -1,6 +1,6 @@
 # Phase 0 review
 
-- **Status:** Draft. The decisions in [Decisions for Chad](#decisions-for-chad) are open, and the go or no-go is not recorded.
+- **Status:** Draft. Four of the seven [decisions](#decisions) are made. Two are open, and the go or no-go is not recorded.
 - **Date:** 2026-11-22
 - **Issue:** [#17](https://github.com/chadalon/collabgod/issues/17)
 
@@ -16,7 +16,7 @@ The roadmap's gate: plugin sync, sample matching and transfer, and edit converge
 | Edits: one order through a relay | Yes | Partly. Through a cloud relay between Chapel Hill and Park City, 200 of 200 operations were ordered and answered and a late joiner caught up. Two replicas editing at once converged over real sockets on one machine, not between the two cities | Met for ordering and delay. Convergence between two cities not run |
 | Plugins: parameters and state | Yes. A Windows PC and an Intel Mac with two people, Pro-Q 2, Pro-Q 3 and Pro-L 2. Serum 2 on one machine only, two copies | No. Both machines were on one network in Chapel Hill | Met between two machines. Not run between two cities |
 
-The plugin spike was not run between the two cities because its app needs macOS 12 and the Park City machine is on macOS 11.7. The network leg it would add is the one the relay and sample runs already measured. Whether that is enough to call the gate met is decision 1 below.
+The plugin spike was not run between the two cities because its app needs macOS 12 and the Park City machine is on macOS 11.7 (#145). The network leg it would add is the one the relay and sample runs already measured. Chad decided on 2026-11-22 that this meets the gate (decision 1): between two cities plugin changes will arrive later than they did on one network, and the product has to be built for that delay.
 
 ## What each spike found
 
@@ -48,11 +48,11 @@ The plugin spike was not run between the two cities because its app needs macOS 
 
 ## Decision records
 
-| Record | Now | Proposed | Why |
+| Record | Before | Now | Why |
 | --- | --- | --- | --- |
-| ADR-0002, stack | Proposed | Accepted | All three of its "How we will know" questions came back yes: the web view holds 60 fps (#8), the model drives the engine without drift (#11), and parameter and state sync work with Serum 2 and others (#12, #13). Its section on #13 still says "not yet run with a real plugin" and needs the real-plugin results before the status changes, because accepted records are not edited afterwards |
-| ADR-0004, ordered edit log | Proposed | Accepted | No divergence in the randomized tests, and the relay ordered every operation between two cities. The record lists two things as still to confirm: the client's half of de-duplicating operations resent after a reconnect, which is not built, and, "if wanted", the convergence test between two locations. Decision 2 below |
-| ADR-0009, C++ dependencies | Proposed | Accepted | Its test was that the pinned fetch works on GitHub's Windows and macOS runners and on the maintainers' machines. It did, on the runners and on Chad's Windows desktop and Intel Mac |
+| ADR-0002, stack | Proposed | Accepted | All three of its "How we will know" questions came back yes: the web view holds 60 fps (#8), the model drives the engine without drift (#11), and parameter and state sync work with Serum 2 and others (#12, #13). Its section on #13 was brought up to date with the real-plugin results in the same change |
+| ADR-0004, ordered edit log | Proposed | Accepted | No divergence in the randomized tests, and the relay ordered every operation between two cities. Two things it listed as still to confirm move to Phase 2: the client's half of resending operations after a reconnect, and convergence between two locations (decision 2) |
+| ADR-0009, C++ dependencies | Proposed | Accepted | Its test was that the pinned fetch works on GitHub's Windows and macOS runners and on the maintainers' machines. It did, on the runners and on Chad's Windows desktop and Intel Mac. Not run on the Park City iMac (#145) |
 | ADR-0003, 0005 to 0008, 0010 to 0012 | Accepted | No change | |
 
 The issue's checklist names ADRs 0002 to 0004. ADR-0003 was accepted on 2026-11-11.
@@ -69,13 +69,14 @@ Found in Phase 0 and not solved there. Each needs an owner issue before its phas
 | The session model needs structural sharing or rollback by inverses: 41 ms to take one remote edit on a 5,000-clip session with a whole-state copy | Phase 1 session model | ADR-0004 |
 | Live parameter values need smoothing on the audio thread or they click | Phase 1 engine, Phase 3 plugins | `engine-toolchain` finding 9 |
 | A returning member should take over their old connection's place; the heartbeat cannot tell a stalled connection from a dead one | Phase 2 relay | #36, #48 |
-| The client's half of resending operations after a reconnect | Phase 2 sync client | ADR-0004 |
+| The client's half of resending operations after a reconnect, and convergence between two locations | Phase 2 sync client and lobby tests | ADR-0004 |
 | Sending a sample from a slow uplink delays edits by more than the window aims for | Phase 2 | #140 |
 | FLAC streams saved with a `.wav` extension get no audio identity | Phase 2 | #141 |
+| Plugin changes between two cities arrive about 50 ms later than on one network, and plugin sync has not been run over that path | Phase 3, at the first two-city plugin session | Decision 1 |
 | Serum 2 is silent for about 4 s after loading a received state | Phase 3 | ADR-0011, NFR-4 |
 | A preset change must travel as one unit, and a copy must not send back a state it loaded | Phase 3 | ADR-0011 |
 | A plugin state can name a file the other machine lacks | Phase 3 | #117 |
-| The Park City machine runs macOS 11.7 and the engine builds need macOS 12. The v1 test needs both producers in the app | Before Phase 2's gate | No issue yet |
+| The Park City machine runs macOS 11.7 and the engine builds need macOS 12. The Phase 1 gate is checked on that machine | Phase 1 | #145 |
 
 ## The competitor session (#4)
 
@@ -89,24 +90,30 @@ What it is for:
 
 What it cannot change: the stack, the edit log, sample identity or plugin identity. Those were decided from our own measurements. Its findings would change requirement priorities and interface design in Phases 2 and 3, and Phase 1 builds neither.
 
-Proposal: do not hold the review for it. Move #4 to Phase 1 with a due date before Phase 2 planning, and record here that the differentiators are unconfirmed. Decision 3 below.
+Chad decided on 2026-11-22 not to hold the review for it (decision 3). #4 moved to the Phase 1 milestone, to be done before Phase 2 planning starts. Until then the two differentiators are unconfirmed.
 
-## Decisions for Chad
+## Decisions
 
-1. **The gate.** Plugin sync ran between two machines on one network, not between two cities. Accept that as meeting the gate, or hold Phase 0 open until it can be run between Chapel Hill and Park City, which needs a machine on macOS 12 or later there.
-2. **ADR-0004.** Accept it now and carry the client's resend handling into Phase 2, or build and test that first. Say whether the convergence test between two locations is wanted.
-3. **Issue #4.** Move it out of Phase 0, or keep the phase open for it.
-4. **ADR-0002 and ADR-0009.** Accept, reject or replace.
-5. **The 25 ms target** for delay added by a sample transfer.
+Made by Chad on 2026-11-22:
+
+1. **The gate is met.** Plugin sync between two machines on one network counts. The delay between two cities is expected and the product is built for it.
+2. **ADR-0004 is accepted.** The client's resend handling and convergence between two locations move to Phase 2.
+3. **Issue #4 moves to Phase 1**, due before Phase 2 planning starts.
+4. **ADR-0002 and ADR-0009 are accepted.**
+
+Open:
+
+5. **The 25 ms target** for delay added to edits while a sample transfers.
 6. **The numeric targets** in the table above: keep each as proposed, or change it.
 7. **Go or no-go** for Phase 1.
 
 ## Still to do before #17 closes
 
-- [ ] Decisions 1 to 7 recorded here and on the issue
-- [ ] ADR-0002's section on #13 brought up to date, then ADR-0002, ADR-0004 and ADR-0009 moved to their final status
+- [x] ADR-0002's section on #13 brought up to date, and ADR-0002, ADR-0004 and ADR-0009 moved to Accepted
+- [x] #4 moved to Phase 1
+- [ ] Decisions 5 to 7 recorded here and on the issue
 - [ ] `docs/requirements.md` revised from the table above, and the line "Numeric targets are proposals to confirm with measurements in Phase 0" replaced
-- [ ] An issue opened for the Park City machine and macOS 12
+- [ ] #103 closed: the relay taken down, and its #4 line moved with #4
 - [ ] Phase 1 issues re-estimated against the inherited findings, and the first sprint planned
 - [ ] `docs/roadmap.md` updated: Phase 0 closed, risks table brought up to date
 - [ ] Go or no-go recorded on #17, which closes the epic #1
