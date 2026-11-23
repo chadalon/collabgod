@@ -1,6 +1,6 @@
 # Phase 0 review
 
-- **Status:** Six of the seven [decisions](#decisions) are made. The go or no-go is not recorded.
+- **Status:** Closed. **Go for Phase 1**, recorded by Chad on #17 on 2026-11-23.
 - **Date:** 2026-11-22
 - **Issue:** [#17](https://github.com/chadalon/collabgod/issues/17)
 
@@ -105,16 +105,16 @@ Made by Chad on 2026-11-22:
 5. **25 ms of added delay during a sample transfer is acceptable**, on one condition: it must not be tiring or frustrating for the person receiving the edits. Things still have to feel smooth on their end. The slower-uplink case that overshot the target (#140) is judged against that.
 6. **The numeric targets are final** as the table above says. NFR-2 stays a proposal until it is measured.
 
-Open:
+Made by Chad on 2026-11-23:
 
-7. **Go or no-go** for Phase 1.
+7. **Go for Phase 1**, recorded on #17.
 
-## Still to do before #17 closes
+## What closed #17
 
 - [x] ADR-0002's section on #13 brought up to date, and ADR-0002, ADR-0004 and ADR-0009 moved to Accepted
 - [x] #4 moved to Phase 1
 - [x] `docs/requirements.md` revised from the table above (v0.10)
 - [x] #103 closed and the relay taken down
-- [ ] Phase 1 issues re-estimated against the inherited findings, and the first sprint planned
-- [ ] `docs/roadmap.md` updated: Phase 0 closed, risks table brought up to date
-- [ ] Go or no-go recorded on #17, which closes the epic #1
+- [x] Phase 1 issues re-estimated against the inherited findings (a "From Phase 0" section on #19, #20 and #23 to #34), and the first sprint proposed on #17: #19, #23, #113, #22 and the start of #145
+- [x] `docs/roadmap.md` updated: Phase 0 closed, risks table brought up to date
+- [x] Go recorded on #17, which closes the epic #1
