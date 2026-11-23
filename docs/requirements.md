@@ -1,4 +1,4 @@
-# Requirements (v0.10)
+# Requirements (v0.11)
 
 Seventy-seven requirements across ten areas. Issues refer to these IDs.
 
@@ -75,8 +75,8 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 | SYN-4 | Adding, removing, renaming and reordering tracks syncs live, as do mixer changes. | Must |
 | SYN-5 | Undo reverses only your own edits. | Must |
 | SYN-6 | Drags and knob turns stream as live previews, then commit as one edit. | Should |
-| SYN-7 | Each person has their own transport: play, stop and playhead position are personal and are not part of the edit log. See ADR-0005. | Must |
-| SYN-8 | A follow mode locks your playhead to the other person's. | Should |
+| SYN-7 | Each person has their own transport: play, stop, playhead position, loop range, metronome and solo are personal and are not part of the edit log. Mute is part of the shared mix. See ADR-0005 and ADR-0013. | Must |
+| SYN-8 | A follow mode locks your playhead, play and stop, and loop range to another member's. That member drives: using your own transport controls leaves follow mode. See ADR-0013. | Should |
 | SYN-9 | Every operation records the member who made it, and who made what is saved with the project. | Must |
 
 ## Plugins
