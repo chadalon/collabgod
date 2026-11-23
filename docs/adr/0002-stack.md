@@ -91,4 +91,9 @@ The phases included panning and zooming across all clips, 256 extra meter levels
 
 ## Outcome
 
-Accepted on 2026-11-22 at the Phase 0 review ([`docs/phase-0-review.md`](../phase-0-review.md), issue #17). All three questions under "How we will know" came back yes. What the spikes found that the product must do differently is listed in that review and in each spike's README.
+Accepted on 2026-11-22 at the Phase 0 review ([`docs/phase-0-review.md`](../phase-0-review.md), issue #17). The three questions under "How we will know" came back yes for what was tested, and two parts of them were not tested:
+
+- **Yes:** the web view holds 60 frames a second with data from C++ (#8). The TypeScript model drives Tracktion Engine for tracks and audio clips without drift (#11). Parameter and state sync work for Serum 2 and others between app instances (#12, #13).
+- **Not tested:** driving plugin parameters from the TypeScript model (#11 covered tracks and audio clips only), and plugin sync through the web view bridge (the #12 and #13 spike linked C++ app instances over TCP; its rules are pure and written to fit the TypeScript client). Both land in Phase 3. If either fails there, a new record supersedes this one.
+
+What the spikes found that the product must do differently is listed in that review and in each spike's README.

@@ -39,18 +39,18 @@ The plugin spike was not run between the two cities because its app needs macOS 
 
 | Target | Measured | Decided |
 | --- | --- | --- |
-| NFR-1: an edit reaches the other person within 150 ms | 49 ms median, 54 ms at the 95th percentile between the two homes when idle. While the slower uplink was sending a sample, its ping rose by 20 ms at the median and 91 ms at the 95th percentile, so the 95th percentile still fits with little margin and the worst cases do not (#140) | Keep 150 ms. It holds during a sample transfer too, so #140 is measured against it |
+| NFR-1: an edit reaches the other person within 150 ms | 49 ms median, 54 ms at the 95th percentile between the two homes when idle. While the slower uplink was sending a sample, its ping rose by 20 ms at the median and 91 ms at the 95th percentile, so the 95th percentile still fits with little margin and the worst cases do not (#140) | Keep 150 ms, at the 95th percentile, which is how every Phase 0 run was judged. It holds during a sample transfer too, so #140 is measured against it |
 | NFR-2: an idle lobby uses less than 10 kbps | Not measured in Phase 0. A moving plugin control costs about 2 kB a second at 30 messages a second | Stays a proposal until Phase 2 measures it |
-| NFR-4: a remote edit never causes a dropout, and another member's preset load sounds no worse to you than to them | Clip edits: no dropouts on Windows; on the 4-core Mac only with one audio thread and clips played without proxies. Preset load: not met with Serum 2, about 4 s of silence on the receiver | Keep. Record the Serum 2 gap as a known Phase 3 risk with its untried remedy (load into a second instance, then switch) |
+| NFR-4: a remote edit never causes a dropout, and another member's preset load sounds no worse to you than to them | Clip edits: no dropouts on Windows; on the 4-core Mac only with one audio thread and clips played without proxies. Preset load: not met with Serum 2, about 4 s of silence on the receiver | Keep. The Serum 2 gap is a known Phase 3 risk; ADR-0011 names the untried remedy (load into a second instance in the background, then switch over) |
 | NFR-5: indexing 100,000 files never blocks the app, and later scans read only changed files | Largest real library: 32,460 files, 88 GB, indexed in 89 s on a fast drive; 12,112 files in 258 s on a hard disk. Event loop delay 14 ms at worst. A rescan with nothing changed read 0 bytes in 1.3 s | Keep. The 100,000-file figure was reached only with generated files |
 | UX-2: the timeline, meters and waveforms hold 60 fps | 60 fps in every benchmark phase on both machines; a command to the engine was heard 16 ms later at the median | Keep. Add that drawing uses WebGL2, since WebGPU is missing on macOS before 26 |
-| Sample transfer added delay (no requirement yet) | The delay-based window aims for 25 ms of added delay; 24 to 41 ms measured through a throttled link | 25 ms is accepted, as long as the other person's edits still arrive smoothly (decision 5). Now part of NFR-1 |
+| Sample transfer added delay (no requirement yet) | The delay-based window aims for 25 ms of added delay; 24 to 41 ms measured through a throttled link | 25 ms is accepted, as long as the other person's edits still arrive smoothly (decision 5). The 25 ms is in NFR-1; the smoothness check is an acceptance criterion on #140 |
 
 ## Decision records
 
 | Record | Before | Now | Why |
 | --- | --- | --- | --- |
-| ADR-0002, stack | Proposed | Accepted | All three of its "How we will know" questions came back yes: the web view holds 60 fps (#8), the model drives the engine without drift (#11), and parameter and state sync work with Serum 2 and others (#12, #13). Its section on #13 was brought up to date with the real-plugin results in the same change |
+| ADR-0002, stack | Proposed | Accepted | Its "How we will know" questions came back yes for what was tested: the web view holds 60 fps (#8), the model drives the engine without drift for tracks and audio clips (#11), and parameter and state sync work with Serum 2 and others between app instances (#12, #13). Not tested: plugin parameters driven from the TypeScript model, and plugin sync through the web view bridge. Both land in Phase 3. Its section on #13 was brought up to date with the real-plugin results in the same change |
 | ADR-0004, ordered edit log | Proposed | Accepted | No divergence in the randomized tests, and the relay ordered every operation between two cities. Two things it listed as still to confirm move to Phase 2: the client's half of resending operations after a reconnect, and convergence between two locations (decision 2) |
 | ADR-0009, C++ dependencies | Proposed | Accepted | Its test was that the pinned fetch works on GitHub's Windows and macOS runners and on the maintainers' machines. It did, on the runners and on Chad's Windows desktop and Intel Mac. Not run on the Park City iMac (#145) |
 | ADR-0003, 0005 to 0008, 0010 to 0012 | Accepted | No change | |
@@ -73,6 +73,7 @@ Found in Phase 0 and not solved there. Each needs an owner issue before its phas
 | Sending a sample from a slow uplink delays edits by more than the window aims for | Phase 2 | #140 |
 | FLAC streams saved with a `.wav` extension get no audio identity | Phase 2 | #141 |
 | Plugin changes between two cities arrive about 50 ms later than on one network, and plugin sync has not been run over that path | Phase 3, at the first two-city plugin session | Decision 1 |
+| Plugin parameters driven from the TypeScript model, and plugin sync through the web view bridge, are untested. The spikes synced C++ app instances over TCP | Phase 3 | ADR-0002 |
 | Serum 2 is silent for about 4 s after loading a received state | Phase 3 | ADR-0011, NFR-4 |
 | A preset change must travel as one unit, and a copy must not send back a state it loaded | Phase 3 | ADR-0011 |
 | A plugin state can name a file the other machine lacks | Phase 3 | #117 |

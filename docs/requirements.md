@@ -135,7 +135,7 @@ v1 is a lobby on Windows and macOS, built and tested for two people at once, tha
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| NFR-1 | An edit appears for the other person within 150 ms on a typical home connection, including while a sample is transferring. A transfer aims to add no more than 25 ms to that delay, and never makes the other person's edits arrive unevenly enough to notice. | Must |
+| NFR-1 | An edit appears for the other person within 150 ms at the 95th percentile on a typical home connection, including while a sample is transferring. A transfer aims to add no more than 25 ms to that delay. | Must |
 | NFR-2 | An idle lobby uses less than 10 kbps. | Should |
 | NFR-3 | The audio thread never waits on the network, the disk or the interface. | Must |
 | NFR-4 | A remote edit never causes an audio dropout. That includes another member's preset load: it sounds no worse to you than it did to them. | Must |

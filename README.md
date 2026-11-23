@@ -26,7 +26,7 @@ The session stores references, not files:
 - A clip points at a **content hash**. If your library has that audio, the clip plays from your path. If not, the file transfers once.
 - A plugin is stored as its **ID, parameter values and saved state**. Each machine loads its own installed copy.
 
-## Proposed stack
+## Stack
 
 | Part | Choice |
 | --- | --- |
@@ -34,13 +34,14 @@ The session stores references, not files:
 | Interface | TypeScript in JUCE's web view, timeline on a GPU canvas |
 | Session model, sync, relay server | TypeScript, one package shared by app, relay and tests |
 
-These are proposals recorded in [`docs/adr`](docs/adr). Phase 0 confirms or replaces them.
+These are decisions recorded in [`docs/adr`](docs/adr). Phase 0 tested them with throwaway spikes and they were accepted at the [Phase 0 review](docs/phase-0-review.md).
 
 ## Documentation
 
 - [Requirements](docs/requirements.md): the v1 requirement set, with IDs that issues refer to
 - [Roadmap](docs/roadmap.md): six phases, each ending in something usable
 - [Architecture decisions](docs/adr): one short record per decision
+- [Phase 0 review](docs/phase-0-review.md): what the spikes found, and what later phases inherit
 - [Ideas](docs/ideas.md): things deliberately not being designed yet
 - [Contributing](CONTRIBUTING.md): workflow, definition of done, engineering rules
 - [Working on CollabGod](AGENTS.md): the starting point for a new contributor or AI agent
