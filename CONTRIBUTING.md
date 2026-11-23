@@ -10,8 +10,9 @@ This project is run in short iterations with a small backlog that is kept honest
 2. **Branch from `main`**: `feat/123-short-name`, `fix/123-short-name`, `spike/123-short-name`, `docs/123-short-name`.
 3. **Keep pull requests small.** One issue, one concern. A PR that needs a long description is usually two PRs.
 4. **Open the PR early** as a draft. Link the issue with `Closes #123`.
-5. **CI must pass.** A maintainer reads every pull request before merging it. Agents and outside contributors never merge.
-6. **Squash merge.** The squash title follows [Conventional Commits](https://www.conventionalcommits.org): `feat(sync): order edits through the relay`.
+5. **Sign the contributor agreement** if this is your first pull request. Everyone except Chad signs, maintainers included. See [Contributor agreement](#contributor-agreement).
+6. **CI must pass.** A maintainer reads every pull request before merging it. Agents and outside contributors never merge.
+7. **Squash merge.** The squash title follows [Conventional Commits](https://www.conventionalcommits.org): `feat(sync): order edits through the relay`.
 
 ## Issue types
 
@@ -53,6 +54,14 @@ These are enforced in review and, where possible, in CI.
 - **Tests come with the change**, not after it.
 - **Record decisions.** If a reviewer would ask "why is it like this?", the answer belongs in an ADR in `docs/adr`.
 - **No copied code from other DAWs** unless its license is compatible and the origin is credited in the file and in `THIRD_PARTY.md`.
+
+## Contributor agreement
+
+The project is GPL-3.0-or-later. Everyone except Chad, who holds the rights the agreement grants, agrees to the [Contributor License Agreement](CLA.md) before their first contribution is merged. That includes anyone who later becomes a maintainer. You keep your copyright. The agreement lets the maintainer license your contribution under other terms, and promises that any release containing it is also available under a free and open-source license. [ADR-0012](docs/adr/0012-contributor-agreement.md) has the reasoning.
+
+To agree, add your own line to [`CLA-SIGNATURES.md`](CLA-SIGNATURES.md) in your first pull request. You do this once. Before merging, Chad checks that the GitHub username on the line is the pull request's author; a line added by anyone else does not count.
+
+An AI agent working for Chad does not sign: its work is Chad's contribution. An agent working for anyone else must not add a line; the person it works for adds their own.
 
 ## Sprints
 
