@@ -1,6 +1,6 @@
 # Phase 0 review
 
-- **Status:** Draft. Four of the seven [decisions](#decisions) are made. Two are open, and the go or no-go is not recorded.
+- **Status:** Six of the seven [decisions](#decisions) are made. The go or no-go is not recorded.
 - **Date:** 2026-11-22
 - **Issue:** [#17](https://github.com/chadalon/collabgod/issues/17)
 
@@ -35,16 +35,16 @@ The plugin spike was not run between the two cities because its app needs macOS 
 
 ## Measurements against the numeric targets
 
-`docs/requirements.md` says its numeric targets are proposals to confirm in Phase 0.
+`docs/requirements.md` called its numeric targets proposals to confirm in Phase 0. Chad made them final on 2026-11-22 as the last column says (decision 6), and requirements v0.10 carries the changes.
 
-| Target | Measured | Proposal |
+| Target | Measured | Decided |
 | --- | --- | --- |
-| NFR-1: an edit reaches the other person within 150 ms | 49 ms median, 54 ms at the 95th percentile between the two homes when idle. While the slower uplink was sending a sample, its ping rose by 20 ms at the median and 91 ms at the 95th percentile, so the 95th percentile still fits with little margin and the worst cases do not (#140) | Keep 150 ms. Say that it holds during a sample transfer too, so #140 is measured against it |
-| NFR-2: an idle lobby uses less than 10 kbps | Not measured in Phase 0. A moving plugin control costs about 2 kB a second at 30 messages a second | Keep as a proposal until Phase 2 measures it |
+| NFR-1: an edit reaches the other person within 150 ms | 49 ms median, 54 ms at the 95th percentile between the two homes when idle. While the slower uplink was sending a sample, its ping rose by 20 ms at the median and 91 ms at the 95th percentile, so the 95th percentile still fits with little margin and the worst cases do not (#140) | Keep 150 ms. It holds during a sample transfer too, so #140 is measured against it |
+| NFR-2: an idle lobby uses less than 10 kbps | Not measured in Phase 0. A moving plugin control costs about 2 kB a second at 30 messages a second | Stays a proposal until Phase 2 measures it |
 | NFR-4: a remote edit never causes a dropout, and another member's preset load sounds no worse to you than to them | Clip edits: no dropouts on Windows; on the 4-core Mac only with one audio thread and clips played without proxies. Preset load: not met with Serum 2, about 4 s of silence on the receiver | Keep. Record the Serum 2 gap as a known Phase 3 risk with its untried remedy (load into a second instance, then switch) |
 | NFR-5: indexing 100,000 files never blocks the app, and later scans read only changed files | Largest real library: 32,460 files, 88 GB, indexed in 89 s on a fast drive; 12,112 files in 258 s on a hard disk. Event loop delay 14 ms at worst. A rescan with nothing changed read 0 bytes in 1.3 s | Keep. The 100,000-file figure was reached only with generated files |
 | UX-2: the timeline, meters and waveforms hold 60 fps | 60 fps in every benchmark phase on both machines; a command to the engine was heard 16 ms later at the median | Keep. Add that drawing uses WebGL2, since WebGPU is missing on macOS before 26 |
-| Sample transfer added delay (no requirement yet) | The delay-based window aims for 25 ms of added delay; 24 to 41 ms measured through a throttled link | Chad to answer the spike's question: is 25 ms acceptable? |
+| Sample transfer added delay (no requirement yet) | The delay-based window aims for 25 ms of added delay; 24 to 41 ms measured through a throttled link | 25 ms is accepted, as long as the other person's edits still arrive smoothly (decision 5). Now part of NFR-1 |
 
 ## Decision records
 
@@ -101,19 +101,19 @@ Made by Chad on 2026-11-22:
 3. **Issue #4 moves to Phase 1**, due before Phase 2 planning starts.
 4. **ADR-0002 and ADR-0009 are accepted.**
 
+5. **25 ms of added delay during a sample transfer is acceptable**, on one condition: it must not be tiring or frustrating for the person receiving the edits. Things still have to feel smooth on their end. The slower-uplink case that overshot the target (#140) is judged against that.
+6. **The numeric targets are final** as the table above says. NFR-2 stays a proposal until it is measured.
+
 Open:
 
-5. **The 25 ms target** for delay added to edits while a sample transfers.
-6. **The numeric targets** in the table above: keep each as proposed, or change it.
 7. **Go or no-go** for Phase 1.
 
 ## Still to do before #17 closes
 
 - [x] ADR-0002's section on #13 brought up to date, and ADR-0002, ADR-0004 and ADR-0009 moved to Accepted
 - [x] #4 moved to Phase 1
-- [ ] Decisions 5 to 7 recorded here and on the issue
-- [ ] `docs/requirements.md` revised from the table above, and the line "Numeric targets are proposals to confirm with measurements in Phase 0" replaced
-- [ ] #103 closed: the relay taken down, and its #4 line moved with #4
+- [x] `docs/requirements.md` revised from the table above (v0.10)
+- [x] #103 closed and the relay taken down
 - [ ] Phase 1 issues re-estimated against the inherited findings, and the first sprint planned
 - [ ] `docs/roadmap.md` updated: Phase 0 closed, risks table brought up to date
 - [ ] Go or no-go recorded on #17, which closes the epic #1
