@@ -4,7 +4,7 @@ Phase 0 spike for [issue #15](https://github.com/chadalon/collabgod/issues/15). 
 
 It is throwaway code. The product indexer will live in the C++ app on a background thread (issue #42); this spike answers what identity to use and what indexing costs. It has no runtime dependencies beyond `tsx` to run the commands.
 
-The proposed decision is in [ADR-0008](../../docs/adr/0008-sample-identity.md).
+The decision is in [ADR-0008](../../docs/adr/0008-sample-identity.md).
 
 ## Run it
 
@@ -132,6 +132,43 @@ Keep the index file outside the repository: it holds your folder paths. The inve
 
 9. Paste the outputs of steps 2, 3, 4, 7 and 8 into issue #15, with each machine's operating system, CPU and the kind of disk the samples are on.
 
+## Results on the real libraries
+
+Measured on 2026-11-21 (field session, issue #103; full outputs on issue #15).
+
+| | Chapel Hill | Park City |
+| --- | --- | --- |
+| Machine | Windows desktop, Ryzen 9 9950X3D, internal drive reading at about 1,000 MB/s (kind not confirmed) | Intel iMac, i5-6500, macOS 11.7, internal rotational disk |
+| Files indexed | 32,460 (87.97 GB) | 12,112 (14.88 GB) |
+| Full scan | 89.4 s, of which walking 1.8 s | 258.3 s, of which walking 8.0 s |
+| Read rate | 1,004 MB/s, 371 files/s | 59.4 MB/s, 48 files/s |
+| CPU | 127.4 s, 142.5% of one core | 92.7 s, 35.9% of one core |
+| Event loop delay, p99 / max | 2.34 / 13.63 ms | 5.17 / 13.83 ms |
+| Index | 13.9 MB, 429 bytes per file | 4.9 MB, 406 bytes per file |
+| PCM audio identity | 32,401 files (99.8%) | 12,112 files (100%) |
+| Rescan, nothing changed | 1.3 s, 0 bytes read | not run |
+
+| Of this library, found in the other | Chapel Hill (32,460 files) | Park City (12,112 files) |
+| --- | --- | --- |
+| `same-file` | 8,648 (26.6%) | 7,577 (62.6%) |
+| `same-audio` | 573 (1.8%) | 1,001 (8.3%) |
+| `same-name` | 15 | 7 |
+| `copy-number` | 4 | 0 |
+| `other-format` | 0 | 0 |
+| `missing` | 23,220 (71.5%), 80.39 GB | 3,527 (29.1%), 7.83 GB |
+
+**6. A real library indexes quickly, even on an old machine with a hard disk.** The disk sets the pace: 59 MB/s on the rotational disk used a third of one core, and about 1,000 MB/s on the fast drive used one and a half. The real libraries average 1.2 to 2.7 MB a file, against 41 KB in the synthetic one, and the index costs 400 to 430 bytes a file against 334 there, probably because real paths are longer. The step 4 check (rename, tag edit, add, delete) was not run on a real library in this session.
+
+**7. The audio hash stays.** It matched 1,001 files (1.43 GB, 8.3%) of the smaller library that the file hash missed. Those would otherwise transfer. This is the measurement ADR-0008 asked for.
+
+**8. 70.8 percent of the smaller library resolves from the larger one with no transfer,** and 28.4 percent the other way. Overlap depends on which way you look, because one library is six times the size of the other.
+
+**9. Name rules hardly matter, and one case they caught should not need them.** Counted from the smaller library, seven distinct names matched by name only; from the larger one it is nine, the other two being the edited copies in finding 10. Five are FLAC streams saved with a `.wav` extension on one machine and plain WAV on the other; the two that were decoded have exactly the other copy's frame count. The indexer reports them as "not wav or aiff" and gives them no audio identity. Reading what a file is from its content, and decoding FLAC, would make them `same-audio` (issue #141). The other two have the same length at 24-bit 96 kHz on one machine and at a third of the size on the other, so they are likely the same sound at a lower resolution. Nobody has listened to them yet.
+
+**10. The same name can be a different sound.** The `copy-number` hits and two `same-name` hits were one person's shorter, edited copies of samples whose originals the other person has byte for byte. The length check disagreed for all of them, which is the right answer.
+
+Step 8 was done from the files' data, not by listening, and with a one-off script: `compare` prints counts and no names (issue #142).
+
 ## Questions for the maintainers
 
 - Answered on PR #99: an audio-hash match resolves a clip automatically. The audio is identical (same format, channels, sample rate and every sample), so the clip sounds the same; only tags or the container differ.
@@ -139,8 +176,7 @@ Keep the index file outside the repository: it holds your folder paths. The inve
 
 ## Not covered
 
-- FLAC, Ogg, MP3, REX and CAF decoding. They get a file hash only.
+- FLAC, Ogg, MP3, REX and CAF decoding. They get a file hash only. FLAC is next (issue #141).
 - File system watching for live updates; the product's indexer adds it (issue #42).
 - Running the scan on its own thread with lowered I/O priority, and pausing it during playback.
 - Matching by audio similarity (a fingerprint that survives resampling or re-encoding). Out of scope for v1.
-- Real libraries. See above.
