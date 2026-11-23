@@ -1,8 +1,10 @@
 # Roadmap
 
-Six phases. Each ends in something two people can run, and each has a gate that decides whether the next one starts. Due dates are kept on the [milestones](../../../milestones), not here. Phase 0 has one. Later phases get theirs at sprint planning, from weekly capacity.
+Six phases. Each ends in something two people can run, and each has a gate that decides whether the next one starts. Due dates are kept on the [milestones](../../../milestones), not here. Later phases get theirs at sprint planning, from weekly capacity.
 
-## Phase 0: decide and spike
+**Now: Phase 1.** Phase 0 closed on 2026-11-23 with a go ([review](phase-0-review.md)).
+
+## Phase 0: decide and spike (closed 2026-11-23)
 
 Settle the open decisions, then build throwaway proofs of the three novel pieces.
 
@@ -11,6 +13,8 @@ Settle the open decisions, then build throwaway proofs of the three novel pieces
 - Two clients edit a toy clip list through a relay and always end in the same state.
 
 **Gate:** all three work between two real machines in different cities, and the stack ADR is accepted or replaced.
+
+**Result:** met, with the stack accepted (ADR-0002). Samples and edit ordering ran between Chapel Hill and Park City. Plugin sync ran between two machines on one network, which the maintainer accepted as meeting the gate. What later phases inherit is listed in the [review](phase-0-review.md).
 
 ## Phase 1: walking skeleton
 
@@ -59,4 +63,8 @@ Visual effects, polish, first-run experience, installers, a promotional website,
 | Connectivity | Start with a small relay. Add direct peer connections later for file transfer. |
 | Real-time safety | Lock-free queues between threads, enforced by review and tests. |
 | The engine stops playback when the MIDI device list changes | Found in Phase 0 (#101). Pressing play again is not enough: it clicks. Fix it in Phase 1 (#125). |
-| Loading a plugin's state can interrupt its sound (Serum 2: about 4 seconds) | Found in Phase 0 (#13). Load as rarely as possible: send parameter values exactly, and skip the load when both copies already save the same state. |
+| Loading a plugin's state can interrupt its sound (Serum 2: about 4 seconds) | Found in Phase 0 (#13). Load as rarely as possible: send parameter values exactly, and skip the load when both copies already save the same state. Untried remedy: load into a second instance in the background, then switch over (ADR-0011). |
+| On a small Mac the engine's thread pool gives late audio during edits | Found in Phase 0 (#11). One audio thread cleared it. Find the cause and choose a safe default in Phase 1 (#113, #27). |
+| The second maintainer's iMac is on macOS 11 and the app needs 12 | Found in Phase 0. Settle it early in Phase 1 (#145): the Phase 1 gate is checked on that machine. |
+| Plugin sync has not run between two cities, through the TypeScript model or through the web view bridge | Phase 0 synced app instances on one network. First two-city plugin session in Phase 3 (ADR-0002). |
+| The differentiators are unconfirmed against StarSync and Audiotool | Competitor session (#4), before Phase 2 planning. |
