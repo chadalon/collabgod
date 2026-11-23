@@ -14,3 +14,4 @@ Closes #
 - [ ] Tests added or updated
 - [ ] No blocking calls, locks or allocation on the audio thread
 - [ ] Docs or ADR updated if behaviour or a decision changed
+- [ ] First pull request from someone who is not a maintainer: your line is in `CLA-SIGNATURES.md`

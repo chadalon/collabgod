@@ -50,3 +50,5 @@ These are proposals recorded in [`docs/adr`](docs/adr). Phase 0 confirms or repl
 Copyright (C) 2026 chadalon and contributors.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed without any warranty. See [`LICENSE`](LICENSE) for the full text and [ADR-0003](docs/adr/0003-license.md) for the reasoning.
+
+Outside contributors agree to a [contributor license agreement](CLA.md) with their first pull request. You keep your copyright, and the agreement promises the project stays available as free software.
