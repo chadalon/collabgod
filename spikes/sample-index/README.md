@@ -4,7 +4,7 @@ Phase 0 spike for [issue #15](https://github.com/chadalon/collabgod/issues/15). 
 
 It is throwaway code. The product indexer will live in the C++ app on a background thread (issue #42); this spike answers what identity to use and what indexing costs. It has no runtime dependencies beyond `tsx` to run the commands.
 
-The proposed decision is in [ADR-0008](../../docs/adr/0008-sample-identity.md).
+The decision is in [ADR-0008](../../docs/adr/0008-sample-identity.md).
 
 ## Run it
 
@@ -163,7 +163,7 @@ Measured on 2026-11-21 (field session, issue #103; full outputs on issue #15).
 
 **8. 70.8 percent of the smaller library resolves from the larger one with no transfer,** and 28.4 percent the other way. Overlap depends on which way you look, because one library is six times the size of the other.
 
-**9. Name rules hardly matter, and one case they caught should not need them.** Seven distinct names matched by name only. Five are FLAC streams saved with a `.wav` extension on one machine and plain WAV on the other; the two that were decoded have exactly the other copy's frame count. The indexer reports them as "not wav or aiff" and gives them no audio identity. Reading what a file is from its content, and decoding FLAC, would make them `same-audio` (issue #141). The other two are the same sound at 24-bit 96 kHz on one machine and at a third of the size on the other.
+**9. Name rules hardly matter, and one case they caught should not need them.** Counted from the smaller library, seven distinct names matched by name only; from the larger one it is nine, the other two being the edited copies in finding 10. Five are FLAC streams saved with a `.wav` extension on one machine and plain WAV on the other; the two that were decoded have exactly the other copy's frame count. The indexer reports them as "not wav or aiff" and gives them no audio identity. Reading what a file is from its content, and decoding FLAC, would make them `same-audio` (issue #141). The other two have the same length at 24-bit 96 kHz on one machine and at a third of the size on the other, so they are likely the same sound at a lower resolution. Nobody has listened to them yet.
 
 **10. The same name can be a different sound.** The `copy-number` hits and two `same-name` hits were one person's shorter, edited copies of samples whose originals the other person has byte for byte. The length check disagreed for all of them, which is the right answer.
 

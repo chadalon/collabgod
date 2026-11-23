@@ -4,7 +4,7 @@ Phase 0 spike for [issue #16](https://github.com/chadalon/collabgod/issues/16) (
 
 It is throwaway code. It runs over the [relay spike](../relay), which gained two things for it: `direct` messages and binary frames that go to one member and never enter the ordered log.
 
-**A sample is named by its file hash**, the SHA-256 of its bytes in lowercase hex, as [ADR-0008](../../docs/adr/0008-sample-identity.md) (Proposed) has it. That is the same hash [`../sample-index`](../sample-index) computes as `fileHash`. A transfer is always asked for and checked by this hash, never by the audio hash: the receiver can only check the bytes it wrote.
+**A sample is named by its file hash**, the SHA-256 of its bytes in lowercase hex, as [ADR-0008](../../docs/adr/0008-sample-identity.md) has it. That is the same hash [`../sample-index`](../sample-index) computes as `fileHash`. A transfer is always asked for and checked by this hash, never by the audio hash: the receiver can only check the bytes it wrote.
 
 So a member serves a sample only under the file hash of the file it actually sends. A local file that matches a clip only by its audio hash has different bytes; it can play the clip, but it is not a source for that clip's file hash. It could be offered under its own file hash instead, which ADR-0008's consequences also say.
 
@@ -169,7 +169,7 @@ From this cloud session, on one machine: real sockets through a real relay, and 
 
 - TLS 1.3 with a verified certificate on both sides in every run, every file verified against its content hash, no re-requests, 16.5 to 18.9 progress events a second.
 - **Resuming between two homes:** the receiver cut its connection at 47.7 MiB, reconnected and rejoined in 321 ms, and fetched the rest from where it stopped.
-- **Receiving costs an edit about 5 ms** at the median. The Park City receiver's 95th percentile was lower during the transfers than before them, because its idle figures come from 9 samples and that connection spikes by itself: 263 and 423 ms idle, and one ping of 1.2 s during run 2.
+- **Receiving costs an edit about 5 ms at the median in Park City, and nothing in Chapel Hill** (−0.3 ms in run 3). The Park City receiver's 95th percentile was lower during the transfers than before them, because its idle figures come from 9 samples and that connection spikes by itself: 263 and 423 ms idle, and one ping of 1.2 s during run 2.
 - **Sending from the faster uplink matches the baseline:** no change at the median and 4 to 14 ms more at the 95th percentile.
 - **Sending from the slower uplink does not.** In run 3 the Park City sender's ping rose by 20 ms at the median and by 91 ms at the 95th percentile, well past the 25 ms the window aims for. One way is about half a round trip, so an edit at the 95th percentile would still arrive inside NFR-1's 150 ms, with far less margin than when idle; the worst pings would miss it. Issue #140 looks for the cause and a better target.
 - The slower direction is the Park City upload, at about half the speed of the Chapel Hill one. Run 2 was slower than run 1 over the same path.

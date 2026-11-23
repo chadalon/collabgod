@@ -1,6 +1,6 @@
 # ADR-0008: Sample identity is the SHA-256 of the file, with a PCM audio hash beside it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-13
 - **Deciders:** Chad
 
@@ -38,6 +38,4 @@ The spike for issue #15 (`spikes/sample-index`) built both. For uncompressed PCM
 
 The `compare` command in `spikes/sample-index` run on both maintainers' real libraries (issue #15). If `same-audio` matches are a negligible share of the overlap, drop the audio hash and keep the file hash only. If many matches are left to the name rules, look at what differs before adding more rules.
 
-**Measured on 2026-11-21** (issue #15, `spikes/sample-index/README.md`). Between a library of 32,460 files and one of 12,112, `same-audio` was 573 files (1.8%) of the larger and 1,001 files (8.3%, 1.43 GB) of the smaller. That is not negligible, so the audio hash stays. Seven distinct names were left to the name rules. Five of them were FLAC streams with a `.wav` extension, which get no audio hash today; issue #141 adds one, by content and not by extension. No new name rule is needed.
-
-The evidence this record asked for is in. Moving it to Accepted is the maintainer's decision.
+**Measured on 2026-11-21** (issue #15, `spikes/sample-index/README.md`). Between a library of 32,460 files and one of 12,112, `same-audio` was 573 files (1.8%) of the larger and 1,001 files (8.3%, 1.43 GB) of the smaller. That is not negligible, so the audio hash stays. Counted from the smaller library, seven distinct names were left to the name rules. Five of them were FLAC streams with a `.wav` extension, which get no audio hash today; issue #141 adds one, by content and not by extension. No new name rule is needed.
