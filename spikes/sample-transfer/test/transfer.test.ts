@@ -257,6 +257,8 @@ describe('verification', () => {
     damaged[10] = (damaged[10] ?? 0) ^ 0xff;
     writeFileSync(part, damaged);
 
+    // The relay must have noticed the drop, or it still counts two people and refuses the rejoin (#139).
+    await until(() => world.server.stats().members === 1, 'the relay noticed the drop');
     const again = await world.connect();
     await again.join(world.code);
     await expect(fetchSample(again, { id, from: 'p1', dir: world.project })).rejects.toMatchObject({ code: 'hash-mismatch' });
