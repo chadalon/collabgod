@@ -159,6 +159,24 @@ From this cloud session, on one machine: real sockets through a real relay, and 
 - **What a transfer costs an edit:** the median ping rose by 2 to 3 ms and the 95th percentile by 23 to 31 ms, on both sides. That matches the 25 ms the delay-based window aims for and the 24 to 41 ms measured through the throttling proxy (finding 6). Added to the 54 ms 95th-percentile edit delay the relay spike measured between Chapel Hill and Park City, it stays inside NFR-1's 150 ms.
 - In the 17:16 run `--drop-at-mb` was given to the sharer, which ignored it. The CLI now refuses an option meant for the other side.
 
+**Two homes, 2026-11-21 23:28 to 23:38 UTC** (same relay setup, in us-east1-b on `main`; a Windows desktop on a home connection in Chapel Hill and an Intel iMac on macOS 11.7 on a home connection in Park City; 190.7 MiB each run; full reports on issue #16).
+
+| Run | From, to | Throughput | Sender ping before, median / 95th | Sender during, median / 95th / max | Receiver ping before, median / 95th | Receiver during, median / 95th / max | Window, median / largest |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Chapel Hill to Park City | 37.5 Mbit/s in 42.7 s | 22.2 / 22.6 ms | 21.8 / 36.3 / 52.5 ms | 72.8 / 263.0 ms | 77.5 / 94.4 / 327.1 ms | 470 / 1200 KiB |
+| 2, dropped at 50 MB | Chapel Hill to Park City | 25.2 Mbit/s in 63.8 s | 22.2 / 22.5 ms | 21.8 / 26.3 / 38.7 ms | 71.9 / 423.1 ms | 76.9 / 302.5 / 1212.7 ms | 286 / 957 KiB |
+| 3 | Park City to Chapel Hill | 19.8 Mbit/s in 80.7 s | 69.5 / 73.6 ms | 89.2 / 164.8 / 359.8 ms | 22.1 / 22.9 ms | 21.8 / 22.5 / 27.3 ms | 315 / 481 KiB |
+
+- TLS 1.3 with a verified certificate on both sides in every run, every file verified against its content hash, no re-requests, 16.5 to 18.9 progress events a second.
+- **Resuming between two homes:** the receiver cut its connection at 47.7 MiB, reconnected and rejoined in 321 ms, and fetched the rest from where it stopped.
+- **Receiving costs an edit about 5 ms** at the median. The Park City receiver's 95th percentile was lower during the transfers than before them, because its idle figures come from 9 samples and that connection spikes by itself: 263 and 423 ms idle, and one ping of 1.2 s during run 2.
+- **Sending from the faster uplink matches the baseline:** no change at the median and 4 to 14 ms more at the 95th percentile.
+- **Sending from the slower uplink does not.** In run 3 the Park City sender's ping rose by 20 ms at the median and by 91 ms at the 95th percentile, well past the 25 ms the window aims for. One way is about half a round trip, so an edit at the 95th percentile would still arrive inside NFR-1's 150 ms, with far less margin than when idle; the worst pings would miss it. Issue #140 looks for the cause and a better target.
+- The slower direction is the Park City upload, at about half the speed of the Chapel Hill one. Run 2 was slower than run 1 over the same path.
+- In run 3 the progress bar ended at 1.78 MB/s on both sides while the report said 2.48 MB/s, which is 200 MB in 80.7 s. The report is right (issue #142).
+- The fixed-window comparison (`--window-kib 2048`) was not run.
+- `npm ci` fails on macOS 11 because esbuild, which `tsx` needs, requires macOS 12. The Park City side ran the same CLI with Node 22's own TypeScript support (issue #142).
+
 ## Questions for the maintainers
 
 - **Is 25 ms of added delay during a transfer acceptable?** It is the target for the delay-based window, and the measured cost was 24 to 41 ms. A lower target protects edits more and slows transfers on connections with a jittery baseline. RFC 6817 allows up to 100 ms, which would leave too little of NFR-1's 150 ms.
@@ -168,7 +186,7 @@ From this cloud session, on one machine: real sockets through a real relay, and 
 
 ## Not covered
 
-- Throughput and resuming between the two real locations. That needs the test above.
+- A fixed window on the real connection, and why sending from the slower uplink adds more delay than the window aims for (issue #140).
 - Several transfers at once. Each stream has its own window, so two streams to one person would each aim for 25 ms of delay. A real client should share one window per connection, or send one file at a time.
 - Choosing which member to ask, and asking another when one leaves. The caller does that here.
 - Storage. Received files are named by content id in a folder the caller chooses (SMP-6). Keeping the file extension, and cleaning up `.part` files nobody will finish, are for the product.
