@@ -34,7 +34,7 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 - **A member is not a connection.** A person is a member saved in the project, with an opaque id the app makes. A dropped connection ends their presence, never their membership. Nothing in the protocol, the session format or the model may assume two people; the limit is a relay setting. See ADR-0006.
 - **Samples are identified by content hash.** A local file path never goes into a session or over the network. Plugin files never leave a machine.
 - **Spikes are throwaway.** Code under `spikes/` answers a question. Product code never imports from it.
-- **Licensing.** The project is GPL-3.0-or-later. Do not copy code from other DAWs. A new dependency must be GPLv3-compatible and listed in `THIRD_PARTY.md` once that file exists. Outside contributors agree to [`CLA.md`](CLA.md) by adding their own line to `CLA-SIGNATURES.md`; an agent never adds or edits a line there. Work you do for a maintainer is that maintainer's contribution and needs no line.
+- **Licensing.** The project is GPL-3.0-or-later. Do not copy code from other DAWs. A new dependency must be GPLv3-compatible and listed in `THIRD_PARTY.md` once that file exists. Everyone except Chad agrees to [`CLA.md`](CLA.md) by adding their own line to `CLA-SIGNATURES.md`, maintainers included; an agent never adds or edits a line there. Work you do for Chad is Chad's contribution and needs no line. Work you do for anyone else needs that person's own line.
 - **Decisions with lasting consequences get an ADR**, opened as Proposed.
 
 ## Commands

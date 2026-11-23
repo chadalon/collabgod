@@ -1,6 +1,6 @@
 # ADR-0012: Outside contributors agree to a contributor license agreement
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chad
 
@@ -18,7 +18,9 @@ This record is not legal advice.
 
 Outside contributors agree to [`CLA.md`](../../CLA.md) before their first contribution is merged. It is a license, not a transfer of copyright. It lets the maintainer license contributions under other terms, promises that any release containing a contribution is also available under a free and open-source license, and passes to the maintainer's successors and assigns.
 
-A contributor agrees by adding their own line to [`CLA-SIGNATURES.md`](../../CLA-SIGNATURES.md) in their first pull request. The maintainer checks for it when reviewing. Work an AI agent does for a maintainer is the maintainer's contribution and needs no line.
+Everyone except Chad agrees, including anyone who later becomes a maintainer. Chad is the party the agreement grants rights to, so he has nothing to sign; anyone else who contributes without signing would keep the sole right to relicense their work, which is the gap this record closes.
+
+A contributor agrees by adding their own line to [`CLA-SIGNATURES.md`](../../CLA-SIGNATURES.md) in their first pull request. Before merging, Chad checks that the GitHub username on the line is the pull request's author. Work an AI agent does for Chad is Chad's contribution and needs no line.
 
 ## Alternatives considered
 
@@ -31,7 +33,7 @@ A contributor agrees by adding their own line to [`CLA-SIGNATURES.md`](../../CLA
 ## Consequences
 
 - Outside contributors have one extra step, once.
-- The agreement text is a draft written for this project and has not been reviewed by a lawyer. It should be reviewed before the first outside contribution is merged, and in any case as part of the licensing review ADR-0003 asks for before any commercial step. Governing law is one of the things it leaves open.
+- The agreement text is a draft written for this project and has not been reviewed by a lawyer. It should be reviewed before the first outside contribution is merged, and in any case as part of the licensing review ADR-0003 asks for before any commercial step. That review is tracked in its own issue. Open points for it: governing law and severability; whether someone signing for an organization needs to show they may (a separate corporate agreement is the usual answer); and whether section 4 should allow any OSI- or FSF-approved license, as it does now, or only copyleft ones.
 - The agreement alone does not make a closed or dual-licensed edition possible. That would still need commercial JUCE and Tracktion licenses (ADR-0003), and section 4 means a free version would continue to exist beside it.
 - If the project moves to a company, Chad assigns his own copyright to it separately. Contributors do not sign again.
 - Whether code produced by AI tools can be copyrighted is unsettled. The agreement makes the contributor responsible for such code, but cannot grant rights that do not exist.

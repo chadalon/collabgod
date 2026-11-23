@@ -31,6 +31,8 @@ You grant the maintainer a perpetual, worldwide, non-exclusive, royalty-free, ir
 - reproduce, modify, publicly display, publicly perform and distribute your contribution and works based on it; and
 - license it to others, and let them do the same, under the project's current license or under any other license terms, subject to section 4.
 
+This license covers only what you have the right to license. Any part of a contribution that comes from someone else (section 6) stays under its own license, and this agreement grants no further rights in it.
+
 ## 4. The maintainer's promise to you
 
 Whenever the maintainer distributes a version of the project that contains your contribution, that version will also be made available to the public under GPL-3.0-or-later, or under another license that the Open Source Initiative has approved or that the Free Software Foundation lists as a free software license.
