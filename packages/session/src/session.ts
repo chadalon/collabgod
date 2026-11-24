@@ -803,7 +803,8 @@ export class Session implements SessionView {
       start = clip.start + moved;
     }
     const end = to === undefined ? clip.start + clip.length : clip.start + ticksTo(to as number);
-    if (!isTick(start) || end <= start || offset < 0) return no('out-of-range');
+    // Every value must still be one a clip can hold: whole, safe ticks, and an offset inside the file.
+    if (!isTick(start) || !isTick(end) || !isLength(end - start) || offset < 0) return no('out-of-range');
 
     const target: Partial<ClipValues> = { start, length: end - start, offset };
     const fields = changedFields(CLIP_FIELDS, clip, target);
@@ -841,6 +842,8 @@ export class Session implements SessionView {
     revFor: (field: ClipField) => OpId,
   ): ApplyResult {
     const written = writeFields(CLIP_FIELDS, clip, fields, target, revFor);
+    // A last check on every clip write, so no computed value can store what a clip may not hold.
+    if (!isFields(CLIP_FIELD_CHECKS, CLIP_FIELDS, written.values)) return no('out-of-range');
     this.putClip(makeClip(clip.id, clip.sample, written.values as unknown as ClipValues, written.rev), clip);
     return ok({ type: 'clip.patch', clipId: clip.id, ...(written.patch as FieldPatch<ClipValues>) });
   }
@@ -851,22 +854,19 @@ export class Session implements SessionView {
     const left = this.clipMap.get(clipId);
     if (left === undefined) return no('target-missing');
     if (this.clipMap.has(newClipId)) return no('id-exists');
-    if (at >= left.length || !isTick(left.start + at)) return no('out-of-range');
+    if (at >= left.length) return no('out-of-range');
 
-    const right = makeClip(
-      newClipId,
-      left.sample,
-      {
-        trackId: left.trackId,
-        start: left.start + at,
-        length: left.length - at,
-        offset: left.offset + ticksToSeconds(at, this.timelineValue.tempo),
-        gain: left.gain,
-        fadeIn: 0,
-        fadeOut: left.fadeOut,
-      },
-      revisions(CLIP_FIELDS, all(opId)),
-    );
+    const rightValues: ClipValues = {
+      trackId: left.trackId,
+      start: left.start + at,
+      length: left.length - at,
+      offset: left.offset + ticksToSeconds(at, this.timelineValue.tempo),
+      gain: left.gain,
+      fadeIn: 0,
+      fadeOut: left.fadeOut,
+    };
+    if (!isFields(CLIP_FIELD_CHECKS, CLIP_FIELDS, { ...rightValues })) return no('out-of-range');
+    const right = makeClip(newClipId, left.sample, rightValues, revisions(CLIP_FIELDS, all(opId)));
     const written = writeFields(CLIP_FIELDS, left, SPLIT_FIELDS, { length: at, fadeOut: 0 }, all(opId));
     this.putClip(makeClip(left.id, left.sample, written.values as unknown as ClipValues, written.rev), left);
     this.putClip(right);

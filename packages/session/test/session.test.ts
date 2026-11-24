@@ -344,6 +344,20 @@ describe('audio clips', () => {
     expect(c9.offset).toBeLessThan(ticksToSeconds(1, 120));
   });
 
+  it('refuse a trim whose edge would land on a tick a clip cannot hold', () => {
+    const session = seeded();
+    unchanged(session, () => {
+      // Found in review: `to: 1e15` once gave a length of 1.92 quintillion ticks, past the safe whole numbers.
+      for (const to of [1e15, 1e300, Number.MAX_VALUE]) {
+        expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k3', to })))).toBe('out-of-range');
+      }
+      for (const from of [1e15, 1e300, Number.MAX_VALUE]) {
+        expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k3', from })))).toBe('out-of-range');
+      }
+    });
+    expect(session.checkInvariants()).toEqual([]);
+  });
+
   it('refuse a trim that would pass the start of the file or of the timeline, or leave no clip', () => {
     const session = seeded();
     must(session, { type: 'clip.add', clip: newClip('c9', 't2', 480, 960, { offset: 1 }) });

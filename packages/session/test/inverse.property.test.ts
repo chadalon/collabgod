@@ -96,6 +96,89 @@ describe('every operation that applies has an exact inverse', () => {
   });
 });
 
+describe('extreme numbers', () => {
+  /** Every kind of number an operation off the network could carry. */
+  const extreme = fc.oneof(
+    fc.double(),
+    fc.integer(),
+    fc.constantFrom(
+      0,
+      -0,
+      0.5,
+      -1,
+      1e15,
+      -1e15,
+      1e300,
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.MAX_VALUE,
+      Number.MIN_VALUE,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NaN,
+    ),
+  );
+  const clipId = fc.constantFrom('k1', 'k2', 'k3', 'n1', 'n2');
+  const change: fc.Arbitrary<Change> = fc.oneof(
+    fc.record(
+      { type: fc.constant('clip.trim' as const), clipId, from: extreme, to: extreme },
+      { requiredKeys: ['type', 'clipId'] },
+    ),
+    fc.record({
+      type: fc.constant('clip.move' as const),
+      clipId,
+      trackId: fc.constantFrom('t1', 't2'),
+      start: extreme,
+    }),
+    fc.record({
+      type: fc.constant('clip.split' as const),
+      clipId,
+      newClipId: fc.constantFrom('n1', 'n2'),
+      at: extreme,
+    }),
+    fc.record({ type: fc.constant('clip.gain' as const), clipId, gain: extreme }),
+    fc.record({ type: fc.constant('clip.fade' as const), clipId, fadeIn: extreme, fadeOut: extreme }),
+    fc.record({ type: fc.constant('tempo.set' as const), tempo: extreme }),
+    fc
+      .record({
+        id: fc.constantFrom('n1', 'n2'),
+        start: extreme,
+        length: extreme,
+        offset: extreme,
+        gain: extreme,
+        fadeIn: extreme,
+        fadeOut: extreme,
+      })
+      .map((values): Change => ({
+        type: 'clip.add',
+        clip: { ...values, trackId: 't1', sample: { fileHash: '0'.repeat(64), name: 'x.wav' } },
+      })),
+  );
+
+  it('never put a value into the session that breaks its rules, and every one that applies still has an exact inverse', () => {
+    fc.assert(
+      fc.property(fc.array(change, { maxLength: 40 }), (changes) => {
+        const session = seeded();
+        changes.forEach((c, i) => {
+          const before = canonical(session);
+          const result = session.apply({ id: `x:${i}`, author: 'm1', change: c });
+          expect(session.checkInvariants()).toEqual([]);
+          if (!result.applied) {
+            expect(canonical(session)).toBe(before);
+            return;
+          }
+          const after = canonical(session);
+          expect(session.apply({ id: `u:${i}`, author: 'm1', change: result.inverse }).applied).toBe(true);
+          expect(canonical(session)).toBe(before);
+          expect(session.apply({ id: `x:${i}`, author: 'm1', change: c }).applied).toBe(true);
+          expect(canonical(session)).toBe(after);
+        });
+      }),
+      { numRuns: runs(1000) },
+    );
+  });
+});
+
 describe('malformed operations', () => {
   const junkChange = fc.oneof(
     fc.anything(),
