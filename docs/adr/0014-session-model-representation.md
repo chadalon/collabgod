@@ -1,7 +1,7 @@
 # ADR-0014: The session model is one mutable state with exact inverses, timed in ticks, with tracks ordered by key
 
-- **Status:** Proposed
-- **Date:** 2026-11-23
+- **Status:** Accepted
+- **Date:** 2026-11-24
 - **Deciders:** Chad
 
 ## Context
