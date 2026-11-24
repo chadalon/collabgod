@@ -2,7 +2,7 @@
 
 A cross-platform desktop DAW where two producers edit the same session at the same time, each running their own plugins and samples locally.
 
-> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are in `spikes/`. The app itself is being built now and does not do anything useful yet. See the [milestones](../../milestones) and [issues](../../issues).
+> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). The app in `app/` builds and starts, but does nothing useful yet. See the [milestones](../../milestones) and [issues](../../issues).
 
 ## Why
 

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2023 only, no Node or browser types: the session model must stay pure (ENG-1).
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src", "test", "*.config.ts"]
+}

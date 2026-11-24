@@ -37,7 +37,8 @@ TypeScript tools are installed by `npm ci` from the root `package-lock.json` at 
 | Name | Version | License | Used for |
 | --- | --- | --- | --- |
 | [TypeScript](https://www.typescriptlang.org) | 7.0.2 | Apache-2.0 | Type checking |
-| [Vitest](https://vitest.dev) | 5.1.0 | MIT | Unit and property tests |
+| [Vitest](https://vitest.dev) | 5.1.1 | MIT | Unit and property tests |
+| [fast-check](https://fast-check.dev) | 4.11.0 | MIT | Property-based tests (the session model) |
 | [esbuild](https://esbuild.github.io) | 0.28.2 | MIT | Bundling the interface |
 
 Not pinned here, and not part of the product: CMake (3.22 or newer), a C++20 compiler, Node 22 or newer and git, which each developer installs (see README.md). The spikes under `spikes/` have their own lockfiles and are not covered by this file.
