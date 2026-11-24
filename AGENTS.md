@@ -28,8 +28,8 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 ## Rules that are easy to break
 
 - **The session model is pure.** No dependency on the interface, the audio engine or Node-only APIs. It must run in a test, in the app, in the relay and in a browser.
-- **Every change to a session is an operation.** There is no other way to mutate state. Operations are deterministic and define what happens when their target is gone.
-- **Undo is guarded by revisions, not values.** See ADR-0004 and `spikes/session-model`. Comparing values was tried and was wrong.
+- **Every change to a session is an operation.** There is no other way to mutate state. Operations are deterministic, define what happens when their target is gone, and return an exact inverse. A new kind of operation without an exact inverse fails `packages/session`'s inverse property test.
+- **Undo is guarded by revisions, not values.** See ADR-0004, ADR-0014 and `packages/session`. Comparing values was tried in the spike and was wrong.
 - **The audio thread never blocks.** No locks, allocation, file or network calls, or logging on it.
 - **A member is not a connection.** A person is a member saved in the project, with an opaque id the app makes. A dropped connection ends their presence, never their membership. Nothing in the protocol, the session format or the model may assume two people; the limit is a relay setting. See ADR-0006.
 - **Samples are identified by content hash.** A local file path never goes into a session or over the network. Plugin files never leave a machine.
@@ -41,6 +41,10 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 
 | Where | Command | What it does |
 | --- | --- | --- |
+| `packages/session` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
+| `packages/session` | `npm test` | Unit, property, convergence and timing tests of the session model |
+| `packages/session` | `npm run typecheck` | Strict TypeScript check, with no Node or browser types, so the package stays pure |
+| `packages/session` | `FC_SCALE=40 npm test` | Property tests with 40 times as many random cases |
 | `spikes/session-model` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/session-model` | `npm test` | Unit, scenario and property tests |
 | `spikes/session-model` | `npm run typecheck` | Strict TypeScript check |
