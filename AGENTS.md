@@ -41,6 +41,12 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 
 | Where | Command | What it does |
 | --- | --- | --- |
+| root | `npm ci` | Install the TypeScript packages' pinned dependencies (Node 22 or newer) |
+| root | `npm run build` | Build everything: type check and build `packages/*`, then configure and build the app with CMake. First run downloads JUCE and Tracktion Engine and takes minutes. Picks parallel jobs from memory (2 on 8 GB); `-- --jobs N` or `COLLABGOD_JOBS=N` to change |
+| root | `npm test` | Every test: the build scripts' own and the check that no product code imports a spike, every package's, then the app's with `ctest` (under `xvfb-run` on Linux). Build first |
+| root | `npm run build:ts`, `npm run test:ts` | Only the TypeScript packages and build scripts; no C++ compiler needed |
+| root | `npm run build:app`, `npm run test:app` | Only the app |
+| root | `npm run build -- --config Debug` | A Debug build in `build/` (`Release` is the default); test it with `npm test -- --config Debug` |
 | `spikes/session-model` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/session-model` | `npm test` | Unit, scenario and property tests |
 | `spikes/session-model` | `npm run typecheck` | Strict TypeScript check |
@@ -87,9 +93,14 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | `spikes/plugin-params` | `build-rules/state_sync_tests --seeds 2000` | The state sync rules' random convergence with twenty times as many cases (the rules build also runs `state_sync_tests` in `ctest`) |
 | `spikes/plugin-params` | `build/.../CollabGod Plugin Params Spike --probe-state <folder or .vst3>` | Measure real plugins' saved state, each in its own process; writes a Markdown report (see `README-STATE.md`) |
 
-A new package or spike with tests gets its own job in `.github/workflows/ci.yml`, added to the `needs` list of the `CI passed` job, and its commands get rows in this table. Code that CI does not run is not protected by the required check. The four engine jobs are the exceptions to running every time, as decided by the `changes` job: the engine toolchain job builds only when `spikes/engine-toolchain/` or `ci.yml` changed; the web view and plugin parameter jobs when their own folder, `spikes/engine-toolchain/` (whose `cmake/EngineDependencies.cmake` they use) or `ci.yml` changed; and the engine projection job when `spikes/engine-projection/`, `spikes/engine-toolchain/`, `spikes/session-model/src/` (whose model its end-to-end tests drive) or `ci.yml` changed. The plugin parameter sync rules have their own small job that runs every time. A job that depends on files outside its own folder needs those paths in that check.
+A new package or spike with tests gets its own job in `.github/workflows/ci.yml`, added to the `needs` list of the `CI passed` job, and its commands get rows in this table. Code that CI does not run is not protected by the required check. The app job and the four engine spike jobs are the exceptions to running every time, as decided by the `changes` job: the app job builds only when `app/`, `cmake/`, `CMakeLists.txt`, `scripts/`, the root `package.json` or lockfile, or `ci.yml` changed; the engine toolchain job builds only when `spikes/engine-toolchain/` or `ci.yml` changed; the web view and plugin parameter jobs when their own folder, `spikes/engine-toolchain/` (whose `cmake/EngineDependencies.cmake` they use) or `ci.yml` changed; and the engine projection job when `spikes/engine-projection/`, `spikes/engine-toolchain/`, `spikes/session-model/src/` (whose model its end-to-end tests drive) or `ci.yml` changed. The plugin parameter sync rules have their own small job that runs every time. A job that depends on files outside its own folder needs those paths in that check.
 
-There is no application to build or run yet. That starts in Phase 1.
+### The product's build
+
+- The app is C++ in `app/`, built by the root `CMakeLists.txt`. Its dependencies are pinned in `cmake/Dependencies.cmake` (ADR-0009) and listed in `THIRD_PARTY.md`; change both together. The macOS minimum is set once, in the root `CMakeLists.txt`. Patches to Tracktion Engine live in `cmake/TracktionPatches.cmake`.
+- The TypeScript packages are one npm workspace, `packages/*`, with one lockfile at the root. Build and test tools (TypeScript, Vitest, esbuild) are pinned once in the root `package.json`; a package lists only what it needs at run time. Every version is exact: `.npmrc` sets `save-exact`.
+- If `npm install` fails with `Cannot read properties of null (reading 'edgesOut')`, that is a bug in the npm 10 that comes with Node 22. Run `npx npm@11 install` to change the lockfile; `npm ci` with npm 10 reads the result fine.
+- Spikes keep their own lockfiles and are not in the workspace. The product never imports from `spikes/`; `npm test` fails if it does.
 
 ## Git and pull requests
 
