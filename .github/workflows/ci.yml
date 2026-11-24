@@ -4,17 +4,26 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Run by hand from the Actions tab. There is no base commit to compare with, so every job runs.
+  workflow_dispatch:
+  # Weekly, every job, the same way. Spike jobs otherwise run only when a spike changed, so
+  # this catches a spike that stopped building as runner images and actions moved on.
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
 
 permissions:
   contents: read
 
+# The weekly run has its own group, so a merge to main does not cancel it, nor it the merge's run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.ref }}
   cancel-in-progress: true
 
 jobs:
   session-model-spike:
     name: Session model spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,6 +45,8 @@ jobs:
 
   relay-spike:
     name: Relay spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -57,6 +68,8 @@ jobs:
 
   sample-index-spike:
     name: Sample index spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -78,6 +91,8 @@ jobs:
 
   sample-transfer-spike:
     name: Sample transfer spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -104,6 +119,8 @@ jobs:
 
   plugin-inventory-spike:
     name: Plugin inventory spike (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -120,7 +137,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: spikes/plugin-inventory/compare/package-lock.json
-      # Needs only Steinberg's VST3 headers, not JUCE, so it builds in seconds and runs on every change.
+      # Needs only Steinberg's VST3 headers, not JUCE, so it builds in seconds.
       - name: Configure (downloads the VST3 interfaces)
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build the scanner and the fake plugins
@@ -142,6 +159,8 @@ jobs:
   # tests. The end-to-end tests through the engine skip here; the job below runs them.
   engine-projection-ts:
     name: Engine projection spike, TypeScript (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -184,6 +203,8 @@ jobs:
 
   shell-scripts:
     name: Shell scripts
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -191,7 +212,9 @@ jobs:
       - run: shellcheck --version
       - run: shellcheck spikes/relay/deploy/*.sh
 
-  # The engine build takes minutes; everything else takes seconds. Build it only when something it uses changed.
+  # Decides which jobs must run. Spikes are throwaway and product code never imports them
+  # (AGENTS.md), so their jobs run only when something under spikes/ or this workflow changed.
+  # The engine builds take minutes, so each runs only when something it uses changed.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
@@ -201,19 +224,21 @@ jobs:
       plugins: ${{ steps.decide.outputs.plugins }}
       projection: ${{ steps.decide.outputs.projection }}
       app: ${{ steps.decide.outputs.app }}
+      spikes: ${{ steps.decide.outputs.spikes }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: decide
-        name: Decide whether the engine toolchain, web view and plugin parameter spikes must build
+        name: Decide which spikes must build
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           if [ "$EVENT" = pull_request ]; then base=$PR_BASE; else base=$PUSH_BEFORE; fi
-          # A new branch pushes an all-zero "before"; a force push can name a commit that is gone.
+          # A new branch pushes an all-zero "before"; a force push can name a commit that is gone;
+          # a manual or scheduled run has none. Each of these runs every job.
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             echo "No base commit to compare with, so everything builds."
             echo "engine=true" >> "$GITHUB_OUTPUT"
@@ -221,6 +246,7 @@ jobs:
             echo "plugins=true" >> "$GITHUB_OUTPUT"
             echo "projection=true" >> "$GITHUB_OUTPUT"
             echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "spikes=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Changed since $base:"
@@ -259,6 +285,14 @@ jobs:
           else
             echo "Nothing the app's C++ build uses changed, so it is skipped."
             echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The quick spike jobs: any spike, since some import others (sample-transfer imports
+          # relay, engine-projection imports session-model).
+          if grep -qE '^(spikes/|\.github/workflows/ci\.yml$)' "$RUNNER_TEMP/changed.txt"; then
+            echo "spikes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No spike changed, so the spike jobs are skipped."
+            echo "spikes=false" >> "$GITHUB_OUTPUT"
           fi
 
   engine-toolchain-spike:
@@ -367,9 +401,11 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The sync rules alone: plain C++, seconds to build, so they run every time.
+  # The sync rules alone: plain C++, seconds to build, so they run whenever a spike changed.
   plugin-params-rules:
     name: Plugin parameter sync rules (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.spikes == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -516,26 +552,33 @@ jobs:
     needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, plugin-inventory-spike, changes, engine-toolchain-spike, webview-ui-spike, plugin-params-rules, plugin-params-spike, engine-projection-ts, engine-projection-spike, shell-scripts, workspace, app]
     runs-on: ubuntu-latest
     steps:
+      # Each check exits on its own: under "bash -e", a failure inside "a || { b && c; }"
+      # does not stop the script, so only the last such line used to decide the result.
       - name: Fail unless every job succeeded
         run: |
-          test "${{ needs.session-model-spike.result }}" = "success"
-          test "${{ needs.relay-spike.result }}" = "success"
-          test "${{ needs.sample-index-spike.result }}" = "success"
-          test "${{ needs.sample-transfer-spike.result }}" = "success"
-          test "${{ needs.plugin-inventory-spike.result }}" = "success"
-          test "${{ needs.engine-projection-ts.result }}" = "success"
-          test "${{ needs.shell-scripts.result }}" = "success"
-          test "${{ needs.plugin-params-rules.result }}" = "success"
-          test "${{ needs.workspace.result }}" = "success"
-          # The engine build may be skipped, but only because change detection succeeded and said so.
-          test "${{ needs.changes.result }}" = "success"
-          engine="${{ needs.engine-toolchain-spike.result }}"
-          test "$engine" = "success" || { test "$engine" = "skipped" && test "${{ needs.changes.outputs.engine }}" = "false"; }
-          webview="${{ needs.webview-ui-spike.result }}"
-          test "$webview" = "success" || { test "$webview" = "skipped" && test "${{ needs.changes.outputs.webview }}" = "false"; }
-          plugins="${{ needs.plugin-params-spike.result }}"
-          test "$plugins" = "success" || { test "$plugins" = "skipped" && test "${{ needs.changes.outputs.plugins }}" = "false"; }
-          projection="${{ needs.engine-projection-spike.result }}"
-          test "$projection" = "success" || { test "$projection" = "skipped" && test "${{ needs.changes.outputs.projection }}" = "false"; }
-          app="${{ needs.app.result }}"
-          test "$app" = "success" || { test "$app" = "skipped" && test "${{ needs.changes.outputs.app }}" = "false"; }
+          # A job may be skipped, but only because change detection succeeded and said so.
+          must_pass() {
+            test "$2" = "success" || { echo "::error::$1 was $2"; exit 1; }
+          }
+          may_skip() {
+            test "$2" = "success" && return 0
+            test "$2" = "skipped" && test "$3" = "false" && return 0
+            echo "::error::$1 was $2 (change detection said run=$3)"
+            exit 1
+          }
+          must_pass changes "${{ needs.changes.result }}"
+          must_pass workspace "${{ needs.workspace.result }}"
+          spikes="${{ needs.changes.outputs.spikes }}"
+          may_skip session-model-spike "${{ needs.session-model-spike.result }}" "$spikes"
+          may_skip relay-spike "${{ needs.relay-spike.result }}" "$spikes"
+          may_skip sample-index-spike "${{ needs.sample-index-spike.result }}" "$spikes"
+          may_skip sample-transfer-spike "${{ needs.sample-transfer-spike.result }}" "$spikes"
+          may_skip plugin-inventory-spike "${{ needs.plugin-inventory-spike.result }}" "$spikes"
+          may_skip engine-projection-ts "${{ needs.engine-projection-ts.result }}" "$spikes"
+          may_skip shell-scripts "${{ needs.shell-scripts.result }}" "$spikes"
+          may_skip plugin-params-rules "${{ needs.plugin-params-rules.result }}" "$spikes"
+          may_skip engine-toolchain-spike "${{ needs.engine-toolchain-spike.result }}" "${{ needs.changes.outputs.engine }}"
+          may_skip webview-ui-spike "${{ needs.webview-ui-spike.result }}" "${{ needs.changes.outputs.webview }}"
+          may_skip plugin-params-spike "${{ needs.plugin-params-spike.result }}" "${{ needs.changes.outputs.plugins }}"
+          may_skip engine-projection-spike "${{ needs.engine-projection-spike.result }}" "${{ needs.changes.outputs.projection }}"
+          may_skip app "${{ needs.app.result }}" "${{ needs.changes.outputs.app }}"
