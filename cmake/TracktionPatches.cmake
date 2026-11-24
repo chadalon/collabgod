@@ -11,7 +11,7 @@
 # compile the same source the Mac ships and a broken patch fails everywhere. Both
 # mean exactly what the original code means.
 #
-# Upstream reports: not filed yet; draft text is on issue #19. When a
+# Upstream reports: not filed yet; draft text is on the pull request for #19. When a
 # report exists, put its link next to its patch below. When Tracktion fixes one,
 # the patch stops matching, configure prints a warning, and it can be deleted.
 #
