@@ -62,7 +62,7 @@ The interface draws `me.view`. Nothing else may change the session: `view` is re
 - **An operation that cannot apply has no effect and says why**: `invalid`, `id-exists`, `target-missing`, `track-missing`, `out-of-range`, `guard-failed` or `no-change`. A replica reports its own operation as `rejected` when the relay's order shows it had no effect, so the interface can tell the person.
 - **Every operation that applies returns its inverse**, which puts the state back exactly, revisions included. Inverses are guarded: one applied later only writes fields still holding the revision the original left. A new kind of operation needs an exact inverse, and `test/inverse.property.test.ts` fails if it is not.
 - **Time is in ticks**, 960 to a quarter note. One tempo, in quarter notes per minute (20 to 999), and one time signature per project. A clip's `offset` is in **seconds of its file**, so a tempo change does not change which audio a clip starts on.
-- **A trim never moves the audio.** `clip.trim` takes the new `start`, the new `end`, or both, and the other edge stays put. The model works out the offset from how far the left edge moved, at the session's tempo, so the interface never sends one. A left edge cannot go past the start of the file (`out-of-range`).
+- **A trim ties each edge to a point in the audio.** `clip.trim` takes `from`, `to` or both: seconds into the clip's file where it should start and end. The other edge stays put. `fileTimeAt(clip, tick, tempo)` turns the tick where a person dropped an edge into that point. The model turns each point back into a whole tick through where the clip's audio sits now and works out the offset from that tick, so a trim never moves the audio. After someone moves the clip or changes the tempo, a trim still lands on the same sound. Of two trims to the same edge at once, the later wins. A left edge cannot go past the start of the file or the timeline (`out-of-range`).
 - **A clip refers to its sample by file hash, audio hash when known, and a file name** (ADR-0008). A name with a `/` or `\` in it, or any extra field on the sample, is refused, so a local path cannot get into the session.
 - **Track order is a position key on each track**, sorted by key and then by id. Use `trackPositionAt(view, index, trackId)` to make one.
 - **Members are marked as removed, never deleted** (ADR-0006). Nothing here assumes two members.
@@ -77,7 +77,7 @@ The interface draws `me.view`. Nothing else may change the session: `view` is re
 | Tracks | `track.add`, `track.remove`, `track.rename`, `track.move` | `track.patch`, and `track.add` and `track.remove` with their guards |
 | Clips | `clip.add`, `clip.remove`, `clip.move`, `clip.trim`, `clip.split`, `clip.gain`, `clip.fade` | `clip.patch`, `clip.unsplit`, `clip.resplit`, and `clip.add` and `clip.remove` with their guards |
 
-A split's `at` counts from the clip's start, so it cuts the same audio if someone moved the clip in the meantime. Moving a clip moves its audio with it; trimming it never does.
+A split's `at` counts from the clip's start and a trim's edges are points in the audio, so both cut the same audio if someone moved the clip in the meantime. Moving a clip moves its audio with it; trimming it never does.
 
 ## Not here yet
 

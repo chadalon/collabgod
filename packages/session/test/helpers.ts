@@ -4,6 +4,7 @@ import {
   type ApplyResult,
   canonical,
   type Change,
+  fileTimeAt,
   type NewClip,
   type Operation,
   type SampleRef,
@@ -57,6 +58,22 @@ export function unchanged(session: SessionView, body: () => void): void {
   body();
   const after = canonical(session);
   if (before !== after) throw new Error(`session changed:\n${before}\n${after}`);
+}
+
+/**
+ * The trim the interface would send for a clip whose edges a person dropped at
+ * these ticks, worked out in `view` as that person sees it.
+ */
+export function trimTo(view: SessionView, clipId: string, edges: { start?: number; end?: number }): Change {
+  const clip = view.clips.get(clipId);
+  if (clip === undefined) throw new Error(`no clip ${clipId}`);
+  const at = (tick: number) => fileTimeAt(clip, tick, view.timeline.tempo);
+  if (edges.start !== undefined && edges.end !== undefined) {
+    return { type: 'clip.trim', clipId, from: at(edges.start), to: at(edges.end) };
+  }
+  if (edges.start !== undefined) return { type: 'clip.trim', clipId, from: at(edges.start) };
+  if (edges.end !== undefined) return { type: 'clip.trim', clipId, to: at(edges.end) };
+  return { type: 'clip.trim', clipId };
 }
 
 /** Two tracks and three clips, so the first random edits already have targets. */

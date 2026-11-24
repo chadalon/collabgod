@@ -34,7 +34,7 @@ function localEdits(me: Replica, clips: number): void {
     const clipId = `c${(i * 97) % clips}`;
     const changes: Change[] = [
       { type: 'clip.move', clipId, trackId: `t${i % 7}`, start: 1_000_000 + i * 960 },
-      { type: 'clip.trim', clipId, start: ((i * 97) % clips) * 960 + 120 },
+      { type: 'clip.trim', clipId, from: 0.0625 },
       { type: 'clip.gain', clipId, gain: -3 },
       { type: 'clip.split', clipId, newClipId: `mine-${i}`, at: 480 },
       { type: 'track.rename', trackId: `t${i % 50}`, name: `Mine ${i}` },

@@ -232,20 +232,23 @@ export type Change =
   /** Move to another place, on the same track or another one. */
   | { readonly type: 'clip.move'; readonly clipId: ClipId; readonly trackId: TrackId; readonly start: number }
   /**
-   * Move one edge of a clip, or both, to a tick on the timeline. Give `start`
-   * for the left edge, `end` for the right edge, or both.
+   * Move one edge of a clip, or both, to a point in its audio: `from` and `to`
+   * are seconds into the clip's file, where the clip should start and end.
+   * Give either or both; an edge not given stays where it is. `fileTimeAt`
+   * turns the tick where a person dropped an edge into such a point.
    *
-   * A trim never moves the audio. Each edge given moves on its own and the other
-   * stays put, so two people trimming the two edges of one clip at once both
-   * keep their trim. The model works out the new `offset` itself from how far
-   * the left edge moved, at the session's tempo, so the audio that remains
-   * stays exactly where it was, even if someone changed the tempo just before.
+   * Tying edges to the audio keeps a trim's meaning whatever happened first:
+   * after someone moves the clip, the edge still lands on the same sound; of
+   * two trims to the same edge at once, the later one wins; trims to opposite
+   * edges are independent. The model turns each point into a whole tick through
+   * where the clip's audio sits now, and works out the new `offset` from that
+   * whole tick, so the audio never moves.
    */
   | {
       readonly type: 'clip.trim';
       readonly clipId: ClipId;
-      readonly start?: number;
-      readonly end?: number;
+      readonly from?: number;
+      readonly to?: number;
     }
   /**
    * Cut a clip in two, `at` ticks from its start. The clip keeps the left part

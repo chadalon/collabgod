@@ -3,6 +3,7 @@
 import fc from 'fast-check';
 import {
   type Change,
+  fileTimeAt,
   type Operation,
   opIdSource,
   type ReceiveResult,
@@ -192,12 +193,13 @@ export function randomChange(
         : { type: 'clip.move', clipId: clip.id, trackId: otherTrackId, start: (d % 64) * 240 };
     case 'clip.trim': {
       if (clip === undefined) return undefined;
-      const end = clip.start + 240 * (1 + (d % 16));
-      // The left edge moves by up to a beat either way. Some of these pass the start of the file and are refused.
-      const start = Math.max(0, clip.start + ((d % 9) - 4) * 240);
-      if (c % 3 === 0) return { type: 'clip.trim', clipId: clip.id, end };
-      if (c % 3 === 1) return { type: 'clip.trim', clipId: clip.id, start };
-      return { type: 'clip.trim', clipId: clip.id, start, end };
+      // Where the person drops each edge, as the interface would send it. Some pass the start of the file and are refused.
+      const at = (tick: number) => fileTimeAt(clip, tick, view.timeline.tempo);
+      const to = at(clip.start + 240 * (1 + (d % 16)));
+      const from = at(Math.max(0, clip.start + ((d % 9) - 4) * 240));
+      if (c % 3 === 0) return { type: 'clip.trim', clipId: clip.id, to };
+      if (c % 3 === 1) return { type: 'clip.trim', clipId: clip.id, from };
+      return { type: 'clip.trim', clipId: clip.id, from, to };
     }
     case 'clip.split':
       return clip === undefined || clip.length < 2

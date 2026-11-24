@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it, vi } from 'vitest';
-import {
-  canonical,
-  type Change,
-  opIdSource,
-  Replica,
-  Sequencer,
-  Session,
-  ticksToSeconds,
-  trackPositionAt,
-} from '../src';
-import { newClip } from './helpers';
+import { canonical, type Change, opIdSource, Replica, Sequencer, Session, trackPositionAt } from '../src';
+import { newClip, trimTo } from './helpers';
 import { Sim } from './sim';
 
 const applied = (result: ReturnType<Replica['submit']>) => {
@@ -107,8 +98,8 @@ describe('a replica in a lobby', () => {
 
   it('keeps both trims when two people trim the two edges of one clip at the same time', () => {
     const sim = new Sim(2);
-    must(sim, 0, { type: 'clip.trim', clipId: 'k3', start: 960 });
-    must(sim, 1, { type: 'clip.trim', clipId: 'k3', end: 2880 });
+    must(sim, 0, trimTo(sim.client(0).view, 'k3', { start: 960 }));
+    must(sim, 1, trimTo(sim.client(1).view, 'k3', { end: 2880 }));
     sim.deliverUp(1);
     sim.deliverUp(0);
     sim.drain();
@@ -117,18 +108,56 @@ describe('a replica in a lobby', () => {
     }
   });
 
-  it('does not move the audio when a trim is ordered just after someone else’s tempo change', () => {
+  it('lets the later of two trims to the same edge win, in either order, rather than adding them up', () => {
+    for (const later of [0, 1]) {
+      const sim = new Sim(2);
+      // One person trims a beat off the left edge, the other two beats.
+      must(sim, 0, trimTo(sim.client(0).view, 'k3', { start: 960 }));
+      must(sim, 1, trimTo(sim.client(1).view, 'k3', { start: 1920 }));
+      sim.deliverUp(1 - later);
+      sim.deliverUp(later);
+      sim.drain();
+      const beats = later === 0 ? 1 : 2;
+      for (const client of sim.clients) {
+        expect(client.view.clips.get('k3')).toMatchObject({
+          start: 960 * beats,
+          length: 3840 - 960 * beats,
+          offset: 0.5 * beats,
+        });
+      }
+    }
+  });
+
+  it('trims the same audio when someone moved the clip first, whichever way they moved it', () => {
+    for (const shift of [-1920, 1920]) {
+      const sim = new Sim(2);
+      must(sim, 0, { type: 'clip.move', clipId: 'k3', trackId: 't2', start: 7680 });
+      sim.drain();
+      // A moves the clip half a bar; B, not having seen that yet, trims half a bar off its left edge.
+      must(sim, 0, { type: 'clip.move', clipId: 'k3', trackId: 't2', start: 7680 + shift });
+      must(sim, 1, trimTo(sim.client(1).view, 'k3', { start: 7680 + 1920 }));
+      sim.deliverUp(0);
+      sim.deliverUp(1);
+      sim.drain();
+      for (const client of sim.clients) {
+        // Half a bar of audio is gone, and the clip stays where A put it, less the half bar.
+        expect(client.view.clips.get('k3')).toMatchObject({ start: 7680 + shift + 1920, length: 1920, offset: 1 });
+      }
+    }
+  });
+
+  it('keeps a trim on the same sound when someone’s tempo change is ordered just before it', () => {
     const sim = new Sim(2);
     must(sim, 0, { type: 'tempo.set', tempo: 125 });
-    must(sim, 1, { type: 'clip.trim', clipId: 'k3', start: 960 });
+    // At 120 BPM, B cuts at one beat: half a second into the file.
+    must(sim, 1, trimTo(sim.client(1).view, 'k3', { start: 960 }));
     sim.deliverUp(0);
     sim.deliverUp(1);
     sim.drain();
-    // At 125 BPM the audio at tick 960 is 0.48 s into the file, so that is where the clip now starts playing.
+    // At 125 BPM that half second plays at tick 1,000, so that is where the clip now starts, on the same sound.
     for (const client of sim.clients) {
-      expect(client.view.clips.get('k3')).toMatchObject({ start: 960, offset: ticksToSeconds(960, 125) });
+      expect(client.view.clips.get('k3')).toMatchObject({ start: 1000, offset: 0.5 });
     }
-    expect(ticksToSeconds(960, 125)).toBe(0.48);
   });
 
   it('works the same with three members, all editing at once', () => {

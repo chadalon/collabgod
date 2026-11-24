@@ -33,6 +33,20 @@ export function ticksToSeconds(ticks: number, tempo: number): number {
   return (ticks * 60) / (tempo * TICKS_PER_QUARTER);
 }
 
+/** Ticks, not rounded, that last `seconds` at `tempo` quarter notes per minute. */
+export function secondsToTicks(seconds: number, tempo: number): number {
+  return (seconds * tempo * TICKS_PER_QUARTER) / 60;
+}
+
+/**
+ * Seconds into a clip's file of the audio that plays at timeline tick `tick`,
+ * at `tempo`. The interface uses this to turn the tick where a person dropped
+ * a clip's edge into the point in the audio that `clip.trim` takes.
+ */
+export function fileTimeAt(clip: Pick<ClipValues, 'start' | 'offset'>, tick: number, tempo: number): number {
+  return clip.offset + ticksToSeconds(tick - clip.start, tempo);
+}
+
 /**
  * The fades as they should sound. Stored fades may add up to more than the
  * clip, for instance after the clip was trimmed; then both shrink in proportion

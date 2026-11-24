@@ -65,6 +65,7 @@ import {
   MAX_ID_LENGTH,
   onlyKeys,
   type Plain,
+  secondsToTicks,
   ticksToSeconds,
 } from './values';
 
@@ -769,24 +770,42 @@ export class Session implements SessionView {
   }
 
   /**
-   * Move one edge or both. An edge not given stays where it is, and the audio
-   * does not move: the offset follows the left edge, at the session's tempo.
+   * Move one edge or both to a point in the clip's file. Each point becomes a
+   * whole tick through where the clip's audio sits now, and the offset follows
+   * the left edge's whole tick exactly, so the audio does not move.
    */
   private trimClip(change: Plain, opId: OpId): ApplyResult {
-    const { clipId, start, end } = change;
-    if (!isId(clipId) || (start === undefined && end === undefined)) return no('invalid');
-    if ((start !== undefined && !isTick(start)) || (end !== undefined && !isLength(end))) return no('invalid');
+    const { clipId, from, to } = change;
+    const seconds = (value: unknown) => value === undefined || (typeof value === 'number' && Number.isFinite(value));
+    if (!isId(clipId) || (from === undefined && to === undefined) || !seconds(from) || !seconds(to)) {
+      return no('invalid');
+    }
     const clip = this.clipMap.get(clipId);
     if (clip === undefined) return no('target-missing');
-    const newStart = start === undefined ? clip.start : (start as number);
-    const newEnd = end === undefined ? clip.start + clip.length : (end as number);
-    if (newEnd <= newStart) return no('out-of-range');
-    const shifted = clip.offset + ticksToSeconds(newStart - clip.start, this.timelineValue.tempo);
-    // Trimming back to the very start of the file can leave a rounding error either side of zero.
-    const offset = Math.abs(shifted) < OFFSET_ROUNDING ? 0 : shifted;
-    // The left edge cannot go further left than the start of the file.
-    if (offset < 0) return no('out-of-range');
-    const target: Partial<ClipValues> = { start: newStart, length: newEnd - newStart, offset };
+    const tempo = this.timelineValue.tempo;
+    // Whole ticks from the clip's start to the audio `point` seconds into its file.
+    const ticksTo = (point: number) => Math.round(secondsToTicks(point - clip.offset, tempo));
+
+    let start = clip.start;
+    let offset = clip.offset;
+    if (from !== undefined) {
+      // The left edge cannot go further left than the start of the file.
+      if ((from as number) < 0) return no('out-of-range');
+      let moved = ticksTo(from as number);
+      let shifted = clip.offset + ticksToSeconds(moved, tempo);
+      // Edges sit on whole ticks. If the start of the file falls between two, stop at the first tick inside the file.
+      if (shifted <= -OFFSET_ROUNDING) {
+        moved += 1;
+        shifted = clip.offset + ticksToSeconds(moved, tempo);
+      }
+      // Trimming back to the very start of the file can leave a rounding error either side of zero.
+      offset = Math.abs(shifted) < OFFSET_ROUNDING ? 0 : shifted;
+      start = clip.start + moved;
+    }
+    const end = to === undefined ? clip.start + clip.length : clip.start + ticksTo(to as number);
+    if (!isTick(start) || end <= start || offset < 0) return no('out-of-range');
+
+    const target: Partial<ClipValues> = { start, length: end - start, offset };
     const fields = changedFields(CLIP_FIELDS, clip, target);
     if (fields.length === 0) return no('no-change');
     return this.writeClip(clip, fields, target, all(opId));

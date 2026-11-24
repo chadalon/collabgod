@@ -15,7 +15,7 @@ import {
   TICKS_PER_QUARTER,
   ticksToSeconds,
 } from '../src';
-import { hash, must, newClip, op, reason, sample, SEED, unchanged } from './helpers';
+import { hash, must, newClip, op, reason, sample, SEED, trimTo, unchanged } from './helpers';
 
 /** A session with the seed: tracks t1 (Drums) and t2 (Bass), clips k1 and k2 on t1, k3 on t2. */
 function seeded(): Session {
@@ -287,26 +287,33 @@ describe('audio clips', () => {
 
   it('trim from the right by changing only the length', () => {
     const session = seeded();
-    roundTrip(session, { type: 'clip.trim', clipId: 'k1', end: 480 });
-    must(session, { type: 'clip.trim', clipId: 'k1', end: 480 }, 'm1', 'trim');
+    roundTrip(session, trimTo(session, 'k1', { end: 480 }));
+    must(session, trimTo(session, 'k1', { end: 480 }), 'm1', 'trim');
     expect(clip(session, 'k1')).toMatchObject({ start: 0, length: 480, offset: 0 });
     expect(clip(session, 'k1').rev).toMatchObject({ start: 'seed:2', length: 'trim', offset: 'seed:2' });
   });
 
+  it('trim to a point in the audio: an edge is given as seconds into the file, and lands on the tick where that audio plays', () => {
+    const session = seeded();
+    must(session, { type: 'clip.trim', clipId: 'k3', from: 0.5, to: 1.5 });
+    // At 120 BPM, 0.5 s is one beat, 960 ticks, and 1.5 s is three beats.
+    expect(clip(session, 'k3')).toMatchObject({ start: 960, length: 1920, offset: 0.5 });
+  });
+
   it('trim from the left without moving the audio: the model works out the new offset at the session’s tempo', () => {
     const session = seeded();
-    roundTrip(session, { type: 'clip.trim', clipId: 'k3', start: 960 });
-    must(session, { type: 'clip.trim', clipId: 'k3', start: 960 });
+    roundTrip(session, trimTo(session, 'k3', { start: 960 }));
+    must(session, trimTo(session, 'k3', { start: 960 }));
     expect(clip(session, 'k3')).toMatchObject({ start: 960, length: 2880, offset: 0.5 });
 
     must(session, { type: 'tempo.set', tempo: 90 });
-    must(session, { type: 'clip.trim', clipId: 'k3', start: 1920 });
+    must(session, trimTo(session, 'k3', { start: 1920 }));
     expect(clip(session, 'k3')).toMatchObject({ start: 1920, length: 1920, offset: 0.5 + ticksToSeconds(960, 90) });
   });
 
   it('trim both edges at once', () => {
     const session = seeded();
-    must(session, { type: 'clip.trim', clipId: 'k3', start: 480, end: 1440 });
+    must(session, trimTo(session, 'k3', { start: 480, end: 1440 }));
     expect(clip(session, 'k3')).toMatchObject({ start: 480, length: 960, offset: 0.25 });
   });
 
@@ -320,23 +327,39 @@ describe('audio clips', () => {
       [38, 213, 251],
       [38, 319, 357],
     ]) {
-      for (const start of steps) must(session, { type: 'clip.trim', clipId: 'k3', start });
-      must(session, { type: 'clip.trim', clipId: 'k3', start: 0 });
+      for (const start of steps) must(session, trimTo(session, 'k3', { start }));
+      must(session, { type: 'clip.trim', clipId: 'k3', from: 0 });
       expect(clip(session, 'k3')).toMatchObject({ start: 0, length: 3840, offset: 0 });
     }
   });
 
-  it('refuse a trim that would pass the start of the file or leave no clip', () => {
+  it('trim to the start of a file that falls between two ticks by stopping at the first tick inside it', () => {
     const session = seeded();
+    // 0.0034 s is 6.5 ticks at 120 BPM, so the start of the file is half a tick away from any tick.
+    must(session, { type: 'clip.add', clip: newClip('c9', 't2', 9600, 960, { offset: 0.0034 }) });
+    must(session, { type: 'clip.trim', clipId: 'c9', from: 0 });
+    const c9 = clip(session, 'c9');
+    expect(c9.start).toBe(9594);
+    expect(c9.offset).toBeGreaterThan(0);
+    expect(c9.offset).toBeLessThan(ticksToSeconds(1, 120));
+  });
+
+  it('refuse a trim that would pass the start of the file or of the timeline, or leave no clip', () => {
+    const session = seeded();
+    must(session, { type: 'clip.add', clip: newClip('c9', 't2', 480, 960, { offset: 1 }) });
     unchanged(session, () => {
-      // k2 starts at 1920 and plays its file from the beginning, so its left edge cannot go further left.
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k2', start: 960 })))).toBe('out-of-range');
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', start: 960 })))).toBe('out-of-range');
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k2', end: 1920 })))).toBe('out-of-range');
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k2', from: -0.5 })))).toBe('out-of-range');
+      // c9 starts 480 ticks into the timeline but 1 s, 1,920 ticks, into its file.
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'c9', from: 0 })))).toBe('out-of-range');
+      expect(reason(session.apply(op(trimTo(session, 'k1', { start: 960 }))))).toBe('out-of-range');
+      expect(reason(session.apply(op(trimTo(session, 'k2', { end: 1920 }))))).toBe('out-of-range');
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k3', from: 1, to: 0.5 })))).toBe('out-of-range');
       expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1' })))).toBe('invalid');
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', end: 0 })))).toBe('invalid');
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', start: 1.5 })))).toBe('invalid');
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', end: 960 })))).toBe('no-change');
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', from: Number.NaN })))).toBe('invalid');
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'k1', to: '0.5' } as unknown as Change)))).toBe(
+        'invalid',
+      );
+      expect(reason(session.apply(op(trimTo(session, 'k1', { end: 960 }))))).toBe('no-change');
     });
   });
 
@@ -381,7 +404,7 @@ describe('audio clips', () => {
       expect(reason(session.apply(op({ type: 'clip.move', clipId: 'k1', trackId: 'gone', start: 0 })))).toBe(
         'track-missing',
       );
-      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'gone', end: 10 })))).toBe('target-missing');
+      expect(reason(session.apply(op({ type: 'clip.trim', clipId: 'gone', to: 1 })))).toBe('target-missing');
       expect(reason(session.apply(op({ type: 'clip.remove', clipId: 'gone' })))).toBe('target-missing');
     });
   });
@@ -458,7 +481,7 @@ describe('guarded inverses', () => {
   it('apply only while each field they write was last written by the edit they reverse', () => {
     const session = seeded();
     const undoMove = must(session, { type: 'clip.move', clipId: 'k1', trackId: 't1', start: 480 }, 'm1');
-    must(session, { type: 'clip.trim', clipId: 'k1', start: 600 }, 'm2');
+    must(session, trimTo(session, 'k1', { start: 600 }), 'm2');
     // The other person rewrote `start`, so the undo of the move must not touch it.
     unchanged(session, () => expect(reason(session.apply(op(undoMove)))).toBe('guard-failed'));
   });

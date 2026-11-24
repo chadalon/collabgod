@@ -5,6 +5,7 @@ export {
   DEFAULT_TEMPO,
   DEFAULT_TIME_SIGNATURE,
   effectiveFades,
+  fileTimeAt,
   isColour,
   isHash,
   isMemberName,
@@ -22,6 +23,7 @@ export {
   MIN_TEMPO,
   TICKS_PER_QUARTER,
   TIME_SIGNATURE_DENOMINATORS,
+  secondsToTicks,
   ticksToSeconds,
 } from './values';
 export { isPosition, MAX_POSITION_LENGTH, positionBetween, trackPositionAt } from './position';
