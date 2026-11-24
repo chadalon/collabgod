@@ -54,6 +54,8 @@ if (outcome.kind === 'rejected') tellThePerson(outcome.operation, outcome.reason
 
 The interface draws `me.view`. Nothing else may change the session: `view` is read-only, and the only mutator is `Session.apply`, which the replica calls.
 
+**If `receive` throws, build a new replica** from a confirmed snapshot and the log after it. A gap in `seq`, or your own operations coming back out of the order you sent them, means the connection broke its promise; nothing has changed when those are thrown. A failed rollback means an inverse was not exact, which is a bug in this package: the view may be half rolled back, so the replica marks itself `broken` and refuses every later call.
+
 ## Rules
 
 - **Every change is an operation** with an id, the member who made it, and a change. `apply` is deterministic, never throws on what it is given, and checks every field, since operations come off the network.

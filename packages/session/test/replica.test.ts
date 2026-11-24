@@ -175,6 +175,33 @@ describe('a replica in a lobby', () => {
   });
 });
 
+describe('a replica whose rollback fails', () => {
+  it('marks itself broken and refuses to go on, so a half rolled-back view is never used', () => {
+    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:') });
+    applied(me.submit({ type: 'tempo.set', tempo: 100 }));
+    applied(me.submit({ type: 'tempo.set', tempo: 110 }));
+    // Make the first inverse refuse, as an inexact one would. Only a bug in this package could do that.
+    const spy = vi.spyOn(Session.prototype, 'apply').mockReturnValueOnce({ applied: false, reason: 'guard-failed' });
+    const theirs = { id: 'them:1', author: 'them', change: { type: 'tempo.set', tempo: 90 } } as const;
+    expect(() => me.receive({ seq: 1, operation: theirs })).toThrow(/rolling back me:2 failed.*build a new one/);
+    spy.mockRestore();
+
+    expect(me.broken).toBe(true);
+    expect(() => me.receive({ seq: 1, operation: theirs })).toThrow(/broken/);
+    expect(() => me.submit({ type: 'tempo.set', tempo: 120 })).toThrow(/broken/);
+    expect(() => me.confirmedSnapshot()).toThrow(/broken/);
+  });
+
+  it('is not broken by a gap in the order, which changes nothing', () => {
+    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:') });
+    expect(() =>
+      me.receive({ seq: 2, operation: { id: 'x', author: 'them', change: { type: 'tempo.set', tempo: 90 } } }),
+    ).toThrow(/expected seq 1/);
+    expect(me.broken).toBe(false);
+    expect(me.view.timeline.tempo).toBe(120);
+  });
+});
+
 describe('the cost of receiving', () => {
   /** A replica with `pending` unconfirmed edits, counting every apply on its state. */
   function setUp(pending: number) {

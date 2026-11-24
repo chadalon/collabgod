@@ -78,6 +78,8 @@ export class Replica {
   private readonly state: Session;
   private confirmedSeq: number;
   private readonly pending: Pending[] = [];
+  /** Why the replica can no longer be used, once a rollback has failed. */
+  private brokenBy: string | null = null;
 
   constructor(options: ReplicaOptions) {
     this.author = options.author;
@@ -107,6 +109,7 @@ export class Replica {
    * nothing to send.
    */
   submit(change: Change): SubmitResult {
+    this.checkUsable();
     const operation: Operation = { id: this.nextOpId(), author: this.author, change };
     const result = this.state.apply(operation);
     if (!result.applied) return result;
@@ -115,13 +118,29 @@ export class Replica {
   }
 
   /**
+   * True once a rollback has failed. The view may then be half rolled back, so
+   * `submit` and `receive` refuse to go on, and the app must build a new replica.
+   */
+  get broken(): boolean {
+    return this.brokenBy !== null;
+  }
+
+  /**
    * Take the next operation in the shared order.
    *
+   * After any error from `receive`, discard this replica and build a new one
+   * from a confirmed snapshot and the log after it.
+   *
    * @throws Error if `seq` is not the next number, or if this replica's own
-   *   operations come back out of the order it sent them in. Either means the
-   *   connection broke its promise, and the replica must be rebuilt.
+   *   operations come back out of the order it sent them in: the connection
+   *   broke its promise. Nothing has changed yet when these are thrown.
+   * @throws Error if rolling back an unconfirmed operation fails, which means
+   *   an inverse was not exact: a bug in this package. Some inverses may have
+   *   been applied already, so the view is no longer trustworthy, and the
+   *   replica marks itself `broken`.
    */
   receive(message: Sequenced): ReceiveResult {
+    this.checkUsable();
     if (message.seq !== this.confirmedSeq + 1) {
       throw new Error(`expected seq ${this.confirmedSeq + 1}, received ${message.seq}`);
     }
@@ -158,6 +177,7 @@ export class Replica {
    * and for tests, not for every frame.
    */
   confirmedSnapshot(): SessionSnapshot {
+    this.checkUsable();
     const copy = this.state.clone();
     this.rollBack(copy);
     return copy.snapshot();
@@ -170,9 +190,14 @@ export class Replica {
       if (entry === undefined || entry.inverse === null) continue;
       const undone = target.apply({ id: entry.operation.id, author: this.author, change: entry.inverse });
       if (!undone.applied) {
-        throw new Error(`rolling back ${entry.operation.id} failed (${undone.reason}); its inverse was not exact`);
+        this.brokenBy = `rolling back ${entry.operation.id} failed (${undone.reason}); its inverse was not exact`;
+        throw new Error(`${this.brokenBy}. This replica is now broken; build a new one`);
       }
     }
+  }
+
+  private checkUsable(): void {
+    if (this.brokenBy !== null) throw new Error(`this replica is broken (${this.brokenBy}); build a new one`);
   }
 }
 

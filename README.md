@@ -2,7 +2,7 @@
 
 A cross-platform desktop DAW where two producers edit the same session at the same time, each running their own plugins and samples locally.
 
-> **Status: planning.** There is no runnable code yet. Phase 0 is a set of throwaway spikes that test the risky ideas before anything is built on them. See the [milestones](../../milestones) and [issues](../../issues).
+> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). There is no app to run yet. See the [milestones](../../milestones) and [issues](../../issues).
 
 ## Why
 
