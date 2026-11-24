@@ -11,7 +11,6 @@ import {
   Sequencer,
   type SessionView,
   type SubmitResult,
-  ticksToSeconds,
   trackPositionAt,
 } from '../src';
 import { hash, SEED } from './helpers';
@@ -193,26 +192,12 @@ export function randomChange(
         : { type: 'clip.move', clipId: clip.id, trackId: otherTrackId, start: (d % 64) * 240 };
     case 'clip.trim': {
       if (clip === undefined) return undefined;
-      if (c % 2 === 0) {
-        // From the right: only the length changes.
-        return {
-          type: 'clip.trim',
-          clipId: clip.id,
-          start: clip.start,
-          length: 240 * (1 + (d % 16)),
-          offset: clip.offset,
-        };
-      }
-      // From the left: start, length and offset move together.
-      const delta = Math.max(-clip.start, Math.min(clip.length - 1, ((d % 9) - 4) * 120));
-      const offset = clip.offset + ticksToSeconds(delta, view.timeline.tempo);
-      return {
-        type: 'clip.trim',
-        clipId: clip.id,
-        start: clip.start + delta,
-        length: clip.length - delta,
-        offset: Math.max(0, offset),
-      };
+      const end = clip.start + 240 * (1 + (d % 16));
+      // The left edge moves by up to a beat either way. Some of these pass the start of the file and are refused.
+      const start = Math.max(0, clip.start + ((d % 9) - 4) * 240);
+      if (c % 3 === 0) return { type: 'clip.trim', clipId: clip.id, end };
+      if (c % 3 === 1) return { type: 'clip.trim', clipId: clip.id, start };
+      return { type: 'clip.trim', clipId: clip.id, start, end };
     }
     case 'clip.split':
       return clip === undefined || clip.length < 2

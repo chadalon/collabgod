@@ -57,7 +57,6 @@ import {
   isNewMember,
   isNewTrack,
   isObject,
-  isOffset,
   isSampleRef,
   isTempo,
   isTick,
@@ -74,6 +73,9 @@ const MEMBER_FIELDS: readonly MemberField[] = ['name', 'colour', 'removed'];
 const TRACK_FIELDS: readonly TrackField[] = ['name', 'position'];
 const CLIP_FIELDS: readonly ClipField[] = ['trackId', 'start', 'length', 'offset', 'gain', 'fadeIn', 'fadeOut'];
 const SPLIT_FIELDS = ['length', 'fadeOut'] as const;
+
+/** Seconds. A trim that lands this close to the start of the file is at the start of the file. */
+const OFFSET_ROUNDING = 1e-9;
 
 type Checks<F extends string> = { readonly [K in F]: (value: unknown) => boolean };
 
@@ -539,11 +541,8 @@ export class Session implements SessionView {
         if (!isId(trackId) || !isTick(start)) return no('invalid');
         return this.editClip(change['clipId'], { trackId, start }, opId);
       }
-      case 'clip.trim': {
-        const { start, length, offset } = change;
-        if (!isTick(start) || !isLength(length) || !isOffset(offset)) return no('invalid');
-        return this.editClip(change['clipId'], { start, length, offset }, opId);
-      }
+      case 'clip.trim':
+        return this.trimClip(change, opId);
       case 'clip.gain':
         return isGain(change['gain']) ? this.editClip(change['clipId'], { gain: change['gain'] }, opId) : no('invalid');
       case 'clip.fade': {
@@ -767,6 +766,30 @@ export class Session implements SessionView {
     if (ifClip !== undefined && !sameClip(clip, ifClip as Clip)) return no('guard-failed');
     this.deleteClip(clip);
     return ok({ type: 'clip.add', clip: newClipOf(clip), rev: clip.rev });
+  }
+
+  /**
+   * Move one edge or both. An edge not given stays where it is, and the audio
+   * does not move: the offset follows the left edge, at the session's tempo.
+   */
+  private trimClip(change: Plain, opId: OpId): ApplyResult {
+    const { clipId, start, end } = change;
+    if (!isId(clipId) || (start === undefined && end === undefined)) return no('invalid');
+    if ((start !== undefined && !isTick(start)) || (end !== undefined && !isLength(end))) return no('invalid');
+    const clip = this.clipMap.get(clipId);
+    if (clip === undefined) return no('target-missing');
+    const newStart = start === undefined ? clip.start : (start as number);
+    const newEnd = end === undefined ? clip.start + clip.length : (end as number);
+    if (newEnd <= newStart) return no('out-of-range');
+    const shifted = clip.offset + ticksToSeconds(newStart - clip.start, this.timelineValue.tempo);
+    // Trimming back to the very start of the file can leave a rounding error either side of zero.
+    const offset = Math.abs(shifted) < OFFSET_ROUNDING ? 0 : shifted;
+    // The left edge cannot go further left than the start of the file.
+    if (offset < 0) return no('out-of-range');
+    const target: Partial<ClipValues> = { start: newStart, length: newEnd - newStart, offset };
+    const fields = changedFields(CLIP_FIELDS, clip, target);
+    if (fields.length === 0) return no('no-change');
+    return this.writeClip(clip, fields, target, all(opId));
   }
 
   /** A direct edit: write the fields whose value actually changes, stamped with this operation. */

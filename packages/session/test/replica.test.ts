@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it, vi } from 'vitest';
-import { canonical, type Change, opIdSource, Replica, Sequencer, Session, trackPositionAt } from '../src';
+import {
+  canonical,
+  type Change,
+  opIdSource,
+  Replica,
+  Sequencer,
+  Session,
+  ticksToSeconds,
+  trackPositionAt,
+} from '../src';
 import { newClip } from './helpers';
 import { Sim } from './sim';
 
@@ -94,6 +103,32 @@ describe('a replica in a lobby', () => {
     sim.drain();
 
     for (const client of sim.clients) expect(client.view.trackOrder).toEqual(['v', 't1', 't3', 't2']);
+  });
+
+  it('keeps both trims when two people trim the two edges of one clip at the same time', () => {
+    const sim = new Sim(2);
+    must(sim, 0, { type: 'clip.trim', clipId: 'k3', start: 960 });
+    must(sim, 1, { type: 'clip.trim', clipId: 'k3', end: 2880 });
+    sim.deliverUp(1);
+    sim.deliverUp(0);
+    sim.drain();
+    for (const client of sim.clients) {
+      expect(client.view.clips.get('k3')).toMatchObject({ start: 960, length: 1920, offset: 0.5 });
+    }
+  });
+
+  it('does not move the audio when a trim is ordered just after someone else’s tempo change', () => {
+    const sim = new Sim(2);
+    must(sim, 0, { type: 'tempo.set', tempo: 125 });
+    must(sim, 1, { type: 'clip.trim', clipId: 'k3', start: 960 });
+    sim.deliverUp(0);
+    sim.deliverUp(1);
+    sim.drain();
+    // At 125 BPM the audio at tick 960 is 0.48 s into the file, so that is where the clip now starts playing.
+    for (const client of sim.clients) {
+      expect(client.view.clips.get('k3')).toMatchObject({ start: 960, offset: ticksToSeconds(960, 125) });
+    }
+    expect(ticksToSeconds(960, 125)).toBe(0.48);
   });
 
   it('works the same with three members, all editing at once', () => {
