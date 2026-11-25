@@ -1,6 +1,6 @@
 # `@collabgod/session`
 
-The session model: what a project holds, every operation that changes it, and a replica that keeps one person's copy in step with the shared order. Issue [#23](https://github.com/chadalon/collabgod/issues/23). The design is [ADR-0004](../../docs/adr/0004-ordered-edit-log.md) (one ordered edit log) and [ADR-0014](../../docs/adr/0014-session-model-representation.md) (how the state is kept).
+The session model: what a project holds, every operation that changes it, and a replica that keeps one person's copy in step with the shared order and holds their undo history. Issues [#23](https://github.com/chadalon/collabgod/issues/23) and [#24](https://github.com/chadalon/collabgod/issues/24). The design is [ADR-0004](../../docs/adr/0004-ordered-edit-log.md) (one ordered edit log) and [ADR-0014](../../docs/adr/0014-session-model-representation.md) (how the state is kept).
 
 It is pure TypeScript with no runtime dependencies and no Node, browser, interface or engine APIs, so it runs in a test, in the app, in the relay and in a browser (ENG-1). The type check enforces that: the package is compiled with the ES2023 library only.
 
@@ -11,7 +11,7 @@ From the repository root (the package is part of the root npm workspace):
 ```sh
 npm ci
 npm run typecheck -w @collabgod/session
-npm test -w @collabgod/session               # about 70 tests in about 10 seconds, the timing test included
+npm test -w @collabgod/session               # about 120 tests in about 10 seconds, the timing test included
 FC_SCALE=40 npm test -w @collabgod/session   # the property tests with 40 times as many random cases
 ```
 
@@ -25,18 +25,20 @@ FC_SCALE=40 npm test -w @collabgod/session   # the property tests with 40 times 
 | `src/values.ts` | Units, limits and the rules each value must follow |
 | `src/position.ts` | Position keys for track order |
 | `src/session.ts` | `Session`: the state, and `apply`, the only way it changes |
-| `src/replica.ts` | `Replica`: one person's copy, with optimistic edits and rollback; `Sequencer` for working solo |
+| `src/replica.ts` | `Replica`: one person's copy, with optimistic edits, rollback, and undo and redo; `Sequencer` for working solo |
 | `test/session.test.ts` | Every operation, its inverse and every rejection reason |
 | `test/inverse.property.test.ts` | Random edits: every inverse is exact, and malformed operations change nothing |
-| `test/convergence.property.test.ts` | Two, three and four replicas under random delivery always end in the log's state |
+| `test/convergence.property.test.ts` | Two, three and four replicas under random edits, undos, redos and delivery always end in the log's state |
+| `test/undo.test.ts` | Undo and redo: solo and in a lobby, the named cases from the Phase 0 findings, removed targets, edits not yet confirmed, undo at the same moment as someone else's edit, and history across a new replica |
+| `test/undo.property.test.ts` | Random runs: an undo puts back exactly what the shared order had before the edit; undoing everything solo gets back exactly to the start; solo and lobby agree |
 | `test/replica.test.ts` | Two- and three-person stories, rejections, and how much a receive costs |
 | `test/timing.test.ts` | The 4 ms budget on a 5,000-clip session |
-| `test/sim.ts` | An in-memory lobby and the random edit generator |
+| `test/sim.ts` | An in-memory lobby, the random edit generator and random runs |
 
 ## Using it
 
 ```ts
-import { opIdSource, Replica, Sequencer, trackPositionAt } from '@collabgod/session';
+import { type Operation, opIdSource, Replica, Sequencer, trackPositionAt } from '@collabgod/session';
 
 const me = new Replica({ author: memberId, nextOpId: opIdSource(`${memberId}:${randomRunId}:`) });
 
@@ -44,20 +46,27 @@ const result = me.submit({
   type: 'track.add',
   track: { id: newTrackId, name: 'Drums', position: trackPositionAt(me.view, me.view.trackOrder.length) },
 });
-if (result.applied) send(result.operation); // in a lobby: to the relay
+if (result.applied) result.send.forEach(sendToRelay);
 
-// Solo there is no relay; a Sequencer gives the order instead.
-const order = new Sequencer();
-if (result.applied) me.receive(order.next(result.operation));
+// Undo and redo work the same way, and say which edit they reversed and which they skipped.
+const undone = me.undo();
+if (undone.applied) undone.send.forEach(sendToRelay);
 
-// In a lobby, everything the relay sends, in order:
+// In a lobby, everything the relay sends, in order. A receive can release operations to send.
 const outcome = me.receive(message);
+outcome.send.forEach(sendToRelay);
 if (outcome.kind === 'rejected') tellThePerson(outcome.operation, outcome.reason);
+
+// Solo there is no relay; a Sequencer gives the order instead, and sendToRelay is just:
+const order = new Sequencer();
+const sendToRelay = (operation: Operation): void => me.receive(order.next(operation)).send.forEach(sendToRelay);
 ```
+
+**Always send what `send` holds**, from `submit`, `undo`, `redo` and `receive`, in the order you get it. It is usually the one operation just made, but an undo of an edit the relay has not confirmed yet waits, along with anything made after it, until that edit comes back (see Undo below).
 
 The interface draws `me.view`. Nothing else may change the session: `view` is read-only, and the only mutator is `Session.apply`, which the replica calls.
 
-**If `receive` throws, build a new replica** from a confirmed snapshot and the log after it. A gap in `seq`, or your own operations coming back out of the order you sent them, means the connection broke its promise; nothing has changed when those are thrown. A failed rollback means an inverse was not exact, which is a bug in this package: the view may be half rolled back, so the replica marks itself `broken` and refuses every later call.
+**If `receive` throws, build a new replica** from a confirmed snapshot and the log after it, and give it the old one's `history`. A gap in `seq`, or your own operations coming back out of the order you sent them, means the connection broke its promise; nothing has changed when those are thrown. A failed rollback means an inverse was not exact, which is a bug in this package: the view may be half rolled back, so the replica marks itself `broken` and refuses every later call.
 
 ## Rules
 
@@ -70,6 +79,18 @@ The interface draws `me.view`. Nothing else may change the session: `view` is re
 - **Track order is a position key on each track**, sorted by key and then by id. Use `trackPositionAt(view, index, trackId)` to make one.
 - **Members are marked as removed, never deleted** (ADR-0006). Nothing here assumes two members.
 - **Fades are stored as set** and may add up to more than a trimmed clip. `effectiveFades` gives what should sound; the interface and the engine both use it.
+
+## Undo
+
+Undo is per member (SYN-5, ADR-0004). `undo()` sends the inverse of this member's latest edit still in effect as a new operation, which the relay orders like any other; `redo()` sends the inverse of the latest undo. Both work the same solo and in a lobby.
+
+- **An undo applies only while every field it writes was last written by the edit it reverses**, compared by revision, never by value (`spikes/session-model` finding 2). It puts back the revision that was there before, so the undo before it, this member's or anyone's, is in effect again. Guards are per field: undoing a move keeps someone else's later change to the same clip's length.
+- **An edit no longer in effect is skipped and forgotten**: someone else has written one of its fields, or removed what it changed, or removed the track a clip it removed would go back to. Undo goes on to the next older edit, and the result lists what it skipped. A forgotten edit stays forgotten even if the other person's undo later brings its target back.
+- **An edit that had no effect in the shared order is removed from the history** when it comes back `rejected` (finding 4).
+- **A new edit clears redo.** Adding a member is not undoable (ADR-0014).
+- **An undo is the inverse in the shared order.** An undo of an edit the relay has not confirmed yet shows at once, but it is sent only once that edit comes back, carrying the inverse worked out where the relay put it; anything made after the undo waits with it. Sent at once, it would carry the inverse against this replica's view, and if someone else's edit to the same thing was ordered first, the undo would wipe theirs out too. If the edit comes back rejected, the undo (and a redo of it) is dropped without being sent.
+- **At the same moment as someone else's edit to the same thing**: if theirs is ordered first, the undo comes back `rejected` and theirs stands, and the next undo goes on to an older edit; if the undo is ordered first, it applies and their edit, being later, wins, after which a redo is skipped. Either way every machine agrees.
+- **The history belongs to the member, not the connection** (ADR-0006). A dropped connection leaves the replica, and its history, as they were. A new replica for the same member, after an error or a restart, takes the old one's `history`: plain data, confirmed entries only, refused for any other member.
 
 ## Operations
 
@@ -84,7 +105,8 @@ A split's `at` counts from the clip's start and a trim's edges are points in the
 
 ## Not here yet
 
-- Undo and redo history per member (#24). `submit` returns each edit's inverse, and the replica recomputes the inverses of its unconfirmed edits whenever it rolls them back and reapplies them; #24 builds the history and its named tests on top.
+- Saving the undo history with the project, so it survives closing the app. `history` is plain data the project file (#25) could hold.
+- A limit on how long the undo history grows, and grouping several operations into one undo step.
 - The project file (#25), and checking a member's secret (#25, #36).
 - Resending unconfirmed operations after a reconnect (Phase 2, LOB-6). Operation ids already make a resent operation recognisable.
 - A feed of what changed for the engine projection (#29) and the timeline (#31). See ADR-0014.

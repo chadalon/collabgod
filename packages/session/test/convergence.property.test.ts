@@ -4,53 +4,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { canonical, Replica, Session } from '../src';
 import { fold, runs } from './helpers';
-import { type Dice, dice, idSource, type Kind, KINDS, randomChange, Sim } from './sim';
-
-type Step =
-  | { kind: 'edit'; who: number; dice: Dice }
-  | { kind: 'late'; who: number; pick: number }
-  | { kind: 'up'; who: number }
-  | { kind: 'down'; who: number };
-
-const who = fc.nat(11);
-const step: fc.Arbitrary<Step> = fc.oneof(
-  { weight: 6, arbitrary: fc.record({ kind: fc.constant('edit' as const), who, dice }) },
-  { weight: 2, arbitrary: fc.record({ kind: fc.constant('late' as const), who, pick: fc.nat(999) }) },
-  { weight: 3, arbitrary: fc.record({ kind: fc.constant('up' as const), who }) },
-  { weight: 4, arbitrary: fc.record({ kind: fc.constant('down' as const), who }) },
-);
-
-/** Long enough runs that every rejection reason and every kind of inverse turns up. */
-const stepLists = (maxLength: number): fc.Arbitrary<Step[]> => fc.array(step, { maxLength, size: 'medium' });
-
-/**
- * Run a random interleaving of edits, late inverses (as undo would send them)
- * and message deliveries, checking `afterEach` after every step.
- */
-function run(
-  count: number,
-  steps: readonly Step[],
-  kinds: readonly Kind[] = KINDS,
-  afterEach?: (sim: Sim) => void,
-): Sim {
-  const sim = new Sim(count);
-  const ids = sim.clients.map((client) => idSource(client.author));
-  for (const s of steps) {
-    const index = s.who % count;
-    if (s.kind === 'edit') {
-      const fresh = ids[index];
-      const change = fresh && randomChange(sim.client(index).view, s.dice, fresh, kinds);
-      if (change) sim.submit(index, change);
-    } else if (s.kind === 'late') {
-      const mine = sim.inverses[index] ?? [];
-      const change = mine[s.pick % Math.max(mine.length, 1)];
-      if (change) sim.submit(index, change);
-    } else if (s.kind === 'up') sim.deliverUp(index);
-    else sim.deliverDown(index);
-    afterEach?.(sim);
-  }
-  return sim;
-}
+import { type Kind, KINDS, run, type Sim, stepLists } from './sim';
 
 function expectConverged(sim: Sim): void {
   const truth = canonical(fold(sim.log.map((message) => message.operation)));

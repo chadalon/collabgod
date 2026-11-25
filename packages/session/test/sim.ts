@@ -10,9 +10,11 @@ import {
   Replica,
   type Sequenced,
   Sequencer,
+  Session,
   type SessionView,
   type SubmitResult,
   trackPositionAt,
+  type UndoResult,
 } from '../src';
 import { hash, SEED } from './helpers';
 
@@ -31,6 +33,8 @@ export class Sim {
   readonly rejected: number[];
   /** For each replica, what each delivery to it returned. */
   readonly received: ReceiveResult[][];
+  /** Every undo and redo operation any replica made, by id, with the id of the operation it reverses. */
+  readonly undos = new Map<string, string>();
   private readonly sequencer = new Sequencer();
   private readonly up: Operation[][];
   private readonly down: Sequenced[][];
@@ -67,10 +71,40 @@ export class Sim {
     const index = i % this.clients.length;
     const result = this.client(index).submit(change);
     if (result.applied) {
-      this.up[index]?.push(result.operation);
+      this.up[index]?.push(...result.send);
       this.inverses[index]?.push(result.inverse);
     }
     return result;
+  }
+
+  /** Press undo on one replica, and queue what it sends. */
+  undo(i: number): UndoResult {
+    return this.reverse(i, (replica) => replica.undo());
+  }
+
+  /** Press redo on one replica, and queue what it sends. */
+  redo(i: number): UndoResult {
+    return this.reverse(i, (replica) => replica.redo());
+  }
+
+  /**
+   * Replace a replica with a new one for the same member, as when the app
+   * starts again: built from its confirmed state, with new operation ids, and
+   * given the old one's undo history unless `keepHistory` is false. Anything it
+   * had not sent is lost; whatever it had sent still reaches the relay.
+   */
+  restart(i: number, run: string, keepHistory = true): Replica {
+    const index = i % this.clients.length;
+    const old = this.client(index);
+    const fresh = new Replica({
+      author: old.author,
+      nextOpId: opIdSource(`${old.author}:${run}:`),
+      session: Session.fromSnapshot(old.confirmedSnapshot()),
+      seq: old.seq,
+      ...(keepHistory ? { history: old.history } : {}),
+    });
+    this.clients[index] = fresh;
+    return fresh;
   }
 
   /** Deliver one replica's oldest unsent operation to the relay. */
@@ -87,6 +121,7 @@ export class Sim {
     const message = this.down[index]?.shift();
     if (message === undefined) return false;
     const result = this.client(index).receive(message);
+    this.up[index]?.push(...result.send);
     this.received[index]?.push(result);
     if (result.kind === 'rejected') this.rejected[index] = (this.rejected[index] ?? 0) + 1;
     return true;
@@ -102,6 +137,16 @@ export class Sim {
         while (this.deliverDown(i)) moved = true;
       }
     }
+  }
+
+  private reverse(i: number, press: (replica: Replica) => UndoResult): UndoResult {
+    const index = i % this.clients.length;
+    const result = press(this.client(index));
+    if (result.applied) {
+      this.undos.set(result.operation.id, result.reverses);
+      this.up[index]?.push(...result.send);
+    }
+    return result;
   }
 
   private order(operation: Operation): void {
@@ -256,4 +301,65 @@ export function randomChange(
 export function idSource(prefix: string): () => string {
   let n = 0;
   return () => `${prefix}-${(n += 1)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Random runs
+// ---------------------------------------------------------------------------
+
+export type Step =
+  | { kind: 'edit'; who: number; dice: Dice }
+  | { kind: 'late'; who: number; pick: number }
+  | { kind: 'undo'; who: number }
+  | { kind: 'redo'; who: number }
+  | { kind: 'up'; who: number }
+  | { kind: 'down'; who: number };
+
+const who = fc.nat(11);
+
+/** Step weights: `late` sends an old inverse as a plain edit; `undo` and `redo` press the buttons. */
+export function stepOf(weights: { readonly undo: number; readonly redo: number } = { undo: 2, redo: 1 }) {
+  return fc.oneof(
+    { weight: 6, arbitrary: fc.record({ kind: fc.constant('edit' as const), who, dice }) },
+    { weight: 2, arbitrary: fc.record({ kind: fc.constant('late' as const), who, pick: fc.nat(999) }) },
+    { weight: weights.undo, arbitrary: fc.record({ kind: fc.constant('undo' as const), who }) },
+    { weight: weights.redo, arbitrary: fc.record({ kind: fc.constant('redo' as const), who }) },
+    { weight: 3, arbitrary: fc.record({ kind: fc.constant('up' as const), who }) },
+    { weight: 4, arbitrary: fc.record({ kind: fc.constant('down' as const), who }) },
+  ) as fc.Arbitrary<Step>;
+}
+
+/** Long enough runs that every rejection reason and every kind of inverse turns up. */
+export const stepLists = (maxLength: number, step: fc.Arbitrary<Step> = stepOf()): fc.Arbitrary<Step[]> =>
+  fc.array(step, { maxLength, size: 'medium' });
+
+/**
+ * Run a random interleaving of edits, late inverses, undos, redos and message
+ * deliveries, checking `afterEach` after every step.
+ */
+export function run(
+  count: number,
+  steps: readonly Step[],
+  kinds: readonly Kind[] = KINDS,
+  afterEach?: (sim: Sim) => void,
+): Sim {
+  const sim = new Sim(count);
+  const ids = sim.clients.map((client) => idSource(client.author));
+  for (const s of steps) {
+    const index = s.who % count;
+    if (s.kind === 'edit') {
+      const fresh = ids[index];
+      const change = fresh && randomChange(sim.client(index).view, s.dice, fresh, kinds);
+      if (change) sim.submit(index, change);
+    } else if (s.kind === 'late') {
+      const mine = sim.inverses[index] ?? [];
+      const change = mine[s.pick % Math.max(mine.length, 1)];
+      if (change) sim.submit(index, change);
+    } else if (s.kind === 'undo') sim.undo(index);
+    else if (s.kind === 'redo') sim.redo(index);
+    else if (s.kind === 'up') sim.deliverUp(index);
+    else sim.deliverDown(index);
+    afterEach?.(sim);
+  }
+  return sim;
 }
