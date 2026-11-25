@@ -557,25 +557,32 @@ jobs:
     name: App with clang 15 (stand-in for Apple clang 15)
     needs: changes
     if: needs.changes.outputs.app == 'true'
-    # Pinned, not -latest: clang 15 must stay installable from the system packages.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    # A plain Ubuntu 24.04 container, not the runner itself: the runner also has
+    # GCC 14, and clang 15 picks GCC 14's C++ library, which it cannot compile
+    # (<ranges>, <format>). In the container clang 15 uses GCC 13's, as on Ubuntu
+    # 24.04 by default. Pinned, not -latest, so clang 15 stays installable.
+    container: ubuntu:24.04
     env:
       CC: clang-15
       CXX: clang++-15
+      DEBIAN_FRONTEND: noninteractive
     steps:
+      - name: Install clang 15, the build tools and JUCE's Linux dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git cmake make \
+            clang-15 libstdc++-13-dev \
+            libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libglu1-mesa-dev mesa-common-dev ladspa-sdk xvfb xauth
+          clang++-15 --version
+          ls /usr/lib/gcc/x86_64-linux-gnu/
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Install clang 15 and JUCE's Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-15 \
-            libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
-            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
-            libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libglu1-mesa-dev mesa-common-dev ladspa-sdk xvfb
-          clang++-15 --version
       - name: Build the app with clang 15
         run: npm run build:app
       - name: Test the app (under xvfb-run)
