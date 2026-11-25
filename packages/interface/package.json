@@ -1,0 +1,13 @@
+{
+  "name": "@collabgod/interface",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The app's interface: TypeScript in JUCE's web view, drawn on a GPU canvas",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  }
+}

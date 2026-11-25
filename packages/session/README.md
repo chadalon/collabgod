@@ -6,13 +6,16 @@ It is pure TypeScript with no runtime dependencies and no Node, browser, interfa
 
 ## Run it
 
+From the repository root (the package is part of the root npm workspace):
+
 ```sh
-cd packages/session
 npm ci
-npm run typecheck
-npm test               # about 70 tests in about 10 seconds, the timing test included
-FC_SCALE=40 npm test   # the property tests with 40 times as many random cases
+npm run typecheck -w @collabgod/session
+npm test -w @collabgod/session               # about 70 tests in about 10 seconds, the timing test included
+FC_SCALE=40 npm test -w @collabgod/session   # the property tests with 40 times as many random cases
 ```
+
+`npm run test:ts` runs it along with every other package.
 
 ## What is here
 

@@ -43,27 +43,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  session-package:
-    name: Session package (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    defaults:
-      run:
-        working-directory: packages/session
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: packages/session/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-
   relay-spike:
     name: Relay spike (${{ matrix.os }})
     needs: changes
@@ -202,6 +181,26 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # The product's TypeScript packages and the root build scripts, through the same
+  # commands a developer runs (#19). Seconds, so it runs every time.
+  workspace:
+    name: TypeScript packages and build scripts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build:ts
+      - run: npm run test:ts
+
   shell-scripts:
     name: Shell scripts
     needs: changes
@@ -225,6 +224,7 @@ jobs:
       plugins: ${{ steps.decide.outputs.plugins }}
       projection: ${{ steps.decide.outputs.projection }}
       spikes: ${{ steps.decide.outputs.spikes }}
+      app: ${{ steps.decide.outputs.app }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -246,6 +246,7 @@ jobs:
             echo "plugins=true" >> "$GITHUB_OUTPUT"
             echo "projection=true" >> "$GITHUB_OUTPUT"
             echo "spikes=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Changed since $base:"
@@ -285,6 +286,13 @@ jobs:
           else
             echo "No spike changed, so the spike jobs are skipped."
             echo "spikes=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The app: its C++, the root CMake and the root build scripts that drive it.
+          if grep -qE '^(app/|cmake/|CMakeLists\.txt$|scripts/|package(-lock)?\.json$|\.github/workflows/ci\.yml$)' "$RUNNER_TEMP/changed.txt"; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing the app's C++ build uses changed, so it is skipped."
+            echo "app=false" >> "$GITHUB_OUTPUT"
           fi
 
   engine-toolchain-spike:
@@ -498,11 +506,93 @@ jobs:
             "$bin" bench --out bench --tracktion-wave-nodes
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The app, built and tested with the one command each that a developer uses (#19).
+  # The cold build takes minutes, so it runs only when something it uses changed.
+  # Caching and the rest of the app's CI come with #20.
+  app:
+    name: App (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Build everything (downloads JUCE, Tracktion Engine and, on Windows, the WebView2 SDK)
+        run: |
+          start=$(date +%s)
+          npm run build
+          echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        shell: bash
+      - name: Run every test
+        run: npm test
+      - name: Record times
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### App on ${{ matrix.os }}"
+            echo ""
+            echo "Cold build, including downloads: ${BUILD_SECONDS:-failed} s"
+            echo ""
+            echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The Mac we test on stops at macOS 13.7, so its compiler is Apple clang 15, which
+  # lacks C++20 parenthesised aggregate initialisation. cmake/TracktionPatches.cmake
+  # works around Tracktion Engine's two uses of it. GitHub's Mac runners all have a
+  # newer Xcode (macOS 14 runners, the last with Xcode 15, were retired on 2026-11-02),
+  # so they never exercise the patches. Open-source clang 15 lacks the same feature
+  # (it arrived in clang 16), so building with it fails if a patch stops working or
+  # Tracktion starts using the feature somewhere new. It is a stand-in: Apple clang
+  # differs in other ways, so the Intel MacBook stays the real test.
+  app-clang-15:
+    name: App with clang 15 (stand-in for Apple clang 15)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    # A plain Ubuntu 24.04 container, not the runner itself: the runner also has
+    # GCC 14, and clang 15 picks GCC 14's C++ library, which it cannot compile
+    # (<ranges>, <format>). In the container clang 15 uses GCC 13's, as on Ubuntu
+    # 24.04 by default. Pinned, not -latest, so clang 15 stays installable.
+    container: ubuntu:24.04
+    env:
+      CC: clang-15
+      CXX: clang++-15
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install clang 15, the build tools and JUCE's Linux dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git cmake make \
+            clang-15 libstdc++-13-dev \
+            libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libglu1-mesa-dev mesa-common-dev ladspa-sdk xvfb xauth
+          clang++-15 --version
+          ls /usr/lib/gcc/x86_64-linux-gnu/
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Build the app with clang 15
+        run: npm run build:app
+      - name: Test the app (under xvfb-run)
+        run: npm run test:app
+
   # One stable check name for branch protection to require, however many jobs exist above.
   passed:
     name: CI passed
     if: always()
-    needs: [session-package, session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, plugin-inventory-spike, changes, engine-toolchain-spike, webview-ui-spike, plugin-params-rules, plugin-params-spike, engine-projection-ts, engine-projection-spike, shell-scripts]
+    needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, plugin-inventory-spike, changes, engine-toolchain-spike, webview-ui-spike, plugin-params-rules, plugin-params-spike, engine-projection-ts, engine-projection-spike, shell-scripts, workspace, app, app-clang-15]
     runs-on: ubuntu-latest
     steps:
       # Each check exits on its own: under "bash -e", a failure inside "a || { b && c; }"
@@ -520,7 +610,9 @@ jobs:
             exit 1
           }
           must_pass changes "${{ needs.changes.result }}"
-          must_pass session-package "${{ needs.session-package.result }}"
+          must_pass workspace "${{ needs.workspace.result }}"
+          may_skip app "${{ needs.app.result }}" "${{ needs.changes.outputs.app }}"
+          may_skip app-clang-15 "${{ needs.app-clang-15.result }}" "${{ needs.changes.outputs.app }}"
           spikes="${{ needs.changes.outputs.spikes }}"
           may_skip session-model-spike "${{ needs.session-model-spike.result }}" "$spikes"
           may_skip relay-spike "${{ needs.relay-spike.result }}" "$spikes"

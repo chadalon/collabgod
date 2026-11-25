@@ -2,7 +2,7 @@
 
 A cross-platform desktop DAW where two producers edit the same session at the same time, each running their own plugins and samples locally.
 
-> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). There is no app to run yet. See the [milestones](../../milestones) and [issues](../../issues).
+> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). The app in `app/` builds and starts, but does nothing useful yet. See the [milestones](../../milestones) and [issues](../../issues).
 
 ## Why
 
@@ -35,6 +35,45 @@ The session stores references, not files:
 | Session model, sync, relay server | TypeScript, one package shared by app, relay and tests |
 
 These are decisions recorded in [`docs/adr`](docs/adr). Phase 0 tested them with throwaway spikes and they were accepted at the [Phase 0 review](docs/phase-0-review.md).
+
+## Building
+
+You need Node 22 or newer, CMake 3.22 or newer, git, and a C++20 compiler: Visual Studio 2022 or newer on Windows, Xcode 15 or newer on macOS 12 or newer. A full developer setup guide comes with #34.
+
+From the repository root:
+
+```sh
+npm ci          # once, and again whenever package-lock.json changes
+npm run build   # builds everything: the TypeScript packages, then the app
+npm test        # runs every test
+```
+
+The first `npm run build` downloads JUCE and Tracktion Engine (about 250 MB) and compiles them, which takes 5 to 15 minutes. After that only what changed is compiled.
+
+**On a machine with 8 GB of memory, build with at most 2 parallel jobs.** Each compile job can need over 3 GB, and with 4 an 8 GB Mac stalled and restarted. The build picks a number that fits your memory by itself (2 on 8 GB) and prints it. To set it yourself: `npm run build -- --jobs 2`, or set `COLLABGOD_JOBS=2`. In PowerShell, quote the separator: `npm run build '--' --jobs 2`.
+
+| Command | What it does |
+| --- | --- |
+| `npm run build:ts`, `npm run test:ts` | Only the TypeScript packages. No C++ compiler needed |
+| `npm run build:app`, `npm run test:app` | Only the C++ app |
+| `npm run build -- --config Debug` | A Debug build (`Release` is the default). Test it with `npm test -- --config Debug` |
+
+The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Release/CollabGod.exe`; on macOS, `build/app/collabgod_artefacts/Release/CollabGod.app`.
+
+### Layout
+
+| Folder | What it holds |
+| --- | --- |
+| `app/` | The desktop app, in C++ on JUCE and Tracktion Engine. Built by the root `CMakeLists.txt` |
+| `cmake/` | The C++ build's shared parts: pinned dependencies, patches, checks |
+| `packages/session` | The session model: operations, undo, convergence. Pure TypeScript, used by the app, the relay and the tests |
+| `packages/interface` | The interface, TypeScript in the app's web view |
+| `packages/relay` | The relay server |
+| `scripts/` | The root build and test commands |
+| `spikes/` | Phase 0's throwaway proofs. Each builds on its own; the product never imports them |
+| `docs/` | Requirements, roadmap and decision records |
+
+Third-party code and its pinned versions are listed in [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
 ## Documentation
 

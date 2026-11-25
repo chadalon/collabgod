@@ -1,0 +1,15 @@
+{
+  "name": "@collabgod/relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The relay server: orders a lobby's edits, carries presence and forwards missing samples",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  }
+}
