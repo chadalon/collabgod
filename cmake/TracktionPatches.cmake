@@ -16,9 +16,9 @@
 # `app-clang-15` job in ci.yml. Built without the patches, it fails on exactly these
 # two places. The Intel MacBook stays the real test.
 #
-# Upstream reports: not filed yet; draft text is on the pull request for #19. When a
-# report exists, put its link next to its patch below. When Tracktion fixes one,
-# the patch stops matching, configure prints a warning, and it can be deleted.
+# Reported upstream, both in one issue: https://github.com/Tracktion/tracktion_engine/issues/505
+# When Tracktion fixes one, the patch stops matching, configure prints a warning,
+# and it can be deleted.
 #
 # A file is written only when its text changes, so configuring again does not touch
 # its timestamp and trigger a rebuild. A local checkout given with
@@ -51,12 +51,14 @@ endif()
 set(_te "${tracktion_SOURCE_DIR}/modules/tracktion_engine")
 
 # 1. ExportableUpdate (a, b) on an aggregate: brace-init means the same.
+#    Upstream: https://github.com/Tracktion/tracktion_engine/issues/505
 collabgod_patch_source("${_te}/model/export/tracktion_Archive.cpp"
     "ExportableUpdate (f.oldRef, destItem->getProjectItemRef())"
     "ExportableUpdate { f.oldRef, destItem->getProjectItemRef() }")
 
 # 2. emplace_back (a, b) on the aggregate ChannelMap::Entry: give it a constructor.
 #    emplace_back cannot brace-init, so the struct gets one instead.
+#    Upstream: https://github.com/Tracktion/tracktion_engine/issues/505
 collabgod_patch_source("${_te}/utilities/tracktion_ChannelMap.h"
     "        float gain = 1.0f;\n    };"
     "        float gain = 1.0f;\n\n        Entry() = default;\n        Entry (int s, int d, float g = 1.0f) : source (s), dest (d), gain (g) {}\n    };")
