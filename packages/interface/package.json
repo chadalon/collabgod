@@ -7,7 +7,11 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "vitest run --passWithNoTests",
+    "dev": "node build.mjs --watch",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@collabgod/bridge": "0.1.0"
   }
 }

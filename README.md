@@ -2,7 +2,7 @@
 
 A cross-platform desktop DAW where two producers edit the same session at the same time, each running their own plugins and samples locally.
 
-> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). The app in `app/` builds and starts, but does nothing useful yet. See the [milestones](../../milestones) and [issues](../../issues).
+> **Status: Phase 1, the walking skeleton.** Phase 0's throwaway spikes tested the risky ideas and are written up in the [Phase 0 review](docs/phase-0-review.md). The first product code is the session model in [`packages/session`](packages/session). The app in `app/` opens a window with the interface in a web view, connected by a typed bridge ([`packages/bridge`](packages/bridge)), but has no timeline or sound yet. See the [milestones](../../milestones) and [issues](../../issues).
 
 ## Why
 
@@ -55,10 +55,10 @@ The first `npm run build` downloads JUCE and Tracktion Engine (about 250 MB) and
 | Command | What it does |
 | --- | --- |
 | `npm run build:ts`, `npm run test:ts` | Only the TypeScript packages. No C++ compiler needed |
-| `npm run build:app`, `npm run test:app` | Only the C++ app |
+| `npm run build:app`, `npm run test:app` | Only the C++ app (and the two packages it is built from) |
 | `npm run build -- --config Debug` | A Debug build (`Release` is the default). Test it with `npm test -- --config Debug` |
 
-The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Release/CollabGod.exe`; on macOS, `build/app/collabgod_artefacts/Release/CollabGod.app`.
+The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Release/CollabGod.exe`; on macOS, `build/app/collabgod_artefacts/Release/CollabGod.app`. **Ctrl+Shift+D** (**Cmd+Shift+D** on a Mac) shows its diagnostics. To work on the interface with a page that reloads on every save, see [`packages/interface`](packages/interface/README.md).
 
 ### Layout
 
@@ -68,6 +68,7 @@ The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Re
 | `cmake/` | The C++ build's shared parts: pinned dependencies, patches, checks |
 | `packages/session` | The session model: operations, undo, convergence. Pure TypeScript, used by the app, the relay and the tests |
 | `packages/interface` | The interface, TypeScript in the app's web view |
+| `packages/bridge` | Every message between the interface and the app, defined once; the app's C++ side is generated from it |
 | `packages/relay` | The relay server |
 | `scripts/` | The root build and test commands |
 | `spikes/` | Phase 0's throwaway proofs. Each builds on its own; the product never imports them |

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The client runs in the web view. The C++ generator also runs in Node, through
+    // build.mjs, but uses nothing from Node itself.
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src", "test", "*.config.ts"]
+}

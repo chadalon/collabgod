@@ -2,7 +2,9 @@
 //
 //   npm run build                     everything, Release
 //   npm run build:ts                  just the TypeScript packages
-//   npm run build:app                 just the C++ app
+//   npm run build:app                 just the C++ app, and the two TypeScript packages
+//                                     it is built from: the bridge contract, generated
+//                                     as C++, and the interface's page
 //   npm run build -- --jobs 2         set the parallel compile jobs. The default fits
 //                                     this machine's memory: 2 on an 8 GB machine.
 //                                     COLLABGOD_JOBS=2 does the same.
@@ -13,6 +15,9 @@
 
 import { ROOT, defaultJobs, ensureNodeModules, fail, isMain, npm, parseOptions, run, step } from './lib.mjs';
 import { resolve } from 'node:path';
+
+/** The workspaces whose build output the app's CMake build reads (app/CMakeLists.txt). */
+export const APP_INPUTS = ['@collabgod/bridge', '@collabgod/interface'];
 
 const USAGE = `Usage: npm run build -- [--only ts|app] [--config Debug|Release|RelWithDebInfo] [--jobs N] [--build-dir DIR]`;
 
@@ -34,6 +39,11 @@ export function main(argv) {
     npm(['run', 'typecheck', '--workspaces', '--if-present']);
     step('TypeScript: build');
     npm(['run', 'build', '--workspaces', '--if-present']);
+  } else {
+    // The app includes the C++ the bridge package generates and copies the interface's page.
+    ensureNodeModules();
+    step('TypeScript: build what the app is made from');
+    npm(['run', 'build', ...APP_INPUTS.flatMap((w) => ['-w', w])]);
   }
 
   if (options.only !== 'ts') {

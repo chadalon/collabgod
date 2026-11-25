@@ -1,4 +1,7 @@
-// Bundles the interface into dist/, which the app will serve to its web view (#26).
+// Bundles the interface into dist/, which the app serves to its web view and copies
+// beside itself when it builds. In a development build the app reloads the page when
+// dist/ changes, so `npm run dev` (this with --watch) and a Debug build of the app give
+// a page that reloads on every save.
 //   node build.mjs           build once
 //   node build.mjs --watch   rebuild on change
 
