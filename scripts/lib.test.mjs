@@ -27,8 +27,8 @@ test('options: every flag', () => {
     buildDir: 'build-debug',
     help: false,
   });
-  assert.equal(parseOptions(['--only', 'app']).only, 'app');
-  assert.equal(parseOptions(['-h']).help, true);
+  assert.equal(parseOptions(['--only', 'app'], {}).only, 'app');
+  assert.equal(parseOptions(['-h'], {}).help, true);
 });
 
 test('options: COLLABGOD_JOBS sets the jobs, and --jobs beats it', () => {
@@ -39,11 +39,11 @@ test('options: COLLABGOD_JOBS sets the jobs, and --jobs beats it', () => {
 });
 
 test('options: refuses what it does not understand', () => {
-  assert.throws(() => parseOptions(['--only', 'cpp']), /--only takes ts or app/);
-  assert.throws(() => parseOptions(['--jobs', '0']), /whole number/);
-  assert.throws(() => parseOptions(['--jobs', 'two']), /whole number/);
-  assert.throws(() => parseOptions(['--config', 'Fast']), /--config takes/);
-  assert.throws(() => parseOptions(['--jobs']), /needs a value/);
-  assert.throws(() => parseOptions(['--jobs', '--only', 'ts']), /needs a value/);
-  assert.throws(() => parseOptions(['--parallel', '2']), /Unknown option --parallel/);
+  assert.throws(() => parseOptions(['--only', 'cpp'], {}), /--only takes ts or app/);
+  assert.throws(() => parseOptions(['--jobs', '0'], {}), /whole number/);
+  assert.throws(() => parseOptions(['--jobs', 'two'], {}), /whole number/);
+  assert.throws(() => parseOptions(['--config', 'Fast'], {}), /--config takes/);
+  assert.throws(() => parseOptions(['--jobs'], {}), /needs a value/);
+  assert.throws(() => parseOptions(['--jobs', '--only', 'ts'], {}), /needs a value/);
+  assert.throws(() => parseOptions(['--parallel', '2'], {}), /Unknown option --parallel/);
 });

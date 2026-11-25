@@ -1,15 +1,20 @@
 # Patches to the downloaded Tracktion Engine source, applied at configure time.
 # Included by Dependencies.cmake after the fetch.
 #
-# Apple clang 15 (Xcode 15, the newest on macOS 13 and 14) lacks C++20 parenthesised
+# Apple clang 15 (Xcode 15, the newest Xcode on macOS 13) lacks C++20 parenthesised
 # aggregate initialisation, which Tracktion Engine uses in two places. Requiring
-# Xcode 16 was ruled out on 2026-11-22: it needs macOS 14, and neither maintainer has
-# a Mac that can run it (#19, engine-toolchain README finding 11). So we carry two
+# Xcode 16 was ruled out on 2026-11-22: it needs macOS 14.5, and the Intel MacBook we
+# test on stops at macOS 13.7 (#19, engine-toolchain README finding 11). So we carry two
 # small patches until Tracktion fixes them upstream.
 #
 # They are applied on every system, not only on macOS, so that Windows and Linux
 # compile the same source the Mac ships and a broken patch fails everywhere. Both
 # mean exactly what the original code means.
+#
+# GitHub's Mac runners all have a newer Apple clang that never needed these, so CI
+# checks them with open-source clang 15 on Linux, which lacks the same feature: the
+# `app-clang-15` job in ci.yml. Built without the patches, it fails on exactly these
+# two places. The Intel MacBook stays the real test.
 #
 # Upstream reports: not filed yet; draft text is on the pull request for #19. When a
 # report exists, put its link next to its patch below. When Tracktion fixes one,

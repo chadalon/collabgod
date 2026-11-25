@@ -545,11 +545,47 @@ jobs:
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The Mac we test on stops at macOS 13.7, so its compiler is Apple clang 15, which
+  # lacks C++20 parenthesised aggregate initialisation. cmake/TracktionPatches.cmake
+  # works around Tracktion Engine's two uses of it. GitHub's Mac runners all have a
+  # newer Xcode (macOS 14 runners, the last with Xcode 15, were retired on 2026-11-02),
+  # so they never exercise the patches. Open-source clang 15 lacks the same feature
+  # (it arrived in clang 16), so building with it fails if a patch stops working or
+  # Tracktion starts using the feature somewhere new. It is a stand-in: Apple clang
+  # differs in other ways, so the Intel MacBook stays the real test.
+  app-clang-15:
+    name: App with clang 15 (stand-in for Apple clang 15)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    # Pinned, not -latest: clang 15 must stay installable from the system packages.
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang-15
+      CXX: clang++-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install clang 15 and JUCE's Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-15 \
+            libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libglu1-mesa-dev mesa-common-dev ladspa-sdk xvfb
+          clang++-15 --version
+      - name: Build the app with clang 15
+        run: npm run build:app
+      - name: Test the app (under xvfb-run)
+        run: npm run test:app
+
   # One stable check name for branch protection to require, however many jobs exist above.
   passed:
     name: CI passed
     if: always()
-    needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, plugin-inventory-spike, changes, engine-toolchain-spike, webview-ui-spike, plugin-params-rules, plugin-params-spike, engine-projection-ts, engine-projection-spike, shell-scripts, workspace, app]
+    needs: [session-model-spike, relay-spike, sample-index-spike, sample-transfer-spike, plugin-inventory-spike, changes, engine-toolchain-spike, webview-ui-spike, plugin-params-rules, plugin-params-spike, engine-projection-ts, engine-projection-spike, shell-scripts, workspace, app, app-clang-15]
     runs-on: ubuntu-latest
     steps:
       # Each check exits on its own: under "bash -e", a failure inside "a || { b && c; }"
@@ -569,6 +605,7 @@ jobs:
           must_pass changes "${{ needs.changes.result }}"
           must_pass workspace "${{ needs.workspace.result }}"
           may_skip app "${{ needs.app.result }}" "${{ needs.changes.outputs.app }}"
+          may_skip app-clang-15 "${{ needs.app-clang-15.result }}" "${{ needs.changes.outputs.app }}"
           spikes="${{ needs.changes.outputs.spikes }}"
           may_skip session-model-spike "${{ needs.session-model-spike.result }}" "$spikes"
           may_skip relay-spike "${{ needs.relay-spike.result }}" "$spikes"

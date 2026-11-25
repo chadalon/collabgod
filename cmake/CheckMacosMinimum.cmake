@@ -5,7 +5,8 @@
 #
 # Reads the binary's load commands with otool: LC_BUILD_VERSION ("minos 12.0"), or
 # LC_VERSION_MIN_MACOSX ("version 12.0") from older linkers. A universal binary has
-# one per architecture, and every one must match.
+# one per architecture, and every one must match: `-arch all` makes otool print
+# them all, where by default it reads only this machine's architecture.
 
 foreach(var BINARY EXPECTED)
     if(NOT DEFINED ${var})
@@ -14,7 +15,7 @@ foreach(var BINARY EXPECTED)
 endforeach()
 
 execute_process(
-    COMMAND otool -l "${BINARY}"
+    COMMAND otool -arch all -l "${BINARY}"
     OUTPUT_VARIABLE load_commands
     RESULT_VARIABLE result)
 if(NOT result EQUAL 0)
