@@ -10,6 +10,8 @@ The contract between the interface (TypeScript, in the web view) and the app (C+
 | Event | app → page | The app calls the generated `bridge::emitFrame (browser, frame)`; the page listens with `client.on('frame', fn, onError)` |
 | Command | page → engine | `queue.push('probe', { id })`. `CommandQueue` sends everything queued in a display frame as one call to the reserved function `commands`, on the next animation frame, or after 100 ms if the page draws no frames. There is no other way to send a command (engine-projection finding 6) |
 
+**One client per page.** The page has exactly one `BridgeClient`, made in `packages/interface/src/shell.ts`. Every client numbers its calls from 0, and the app's answers reach every client listening, so two clients would take each other's answers, with no error when the shapes happen to match. The same goes for JUCE's own `@juce-framework/webview` package, which counts from 0 on the same event: do not add it beside this one without giving calls ids that cannot collide. #158 makes a second client throw.
+
 Every value is checked against the contract where it arrives, on both sides: the page checks arguments before sending and answers and events as they come; the app checks arguments before its handler runs. Every field is required and unknown fields are refused. Numbers must be finite and integers whole and within JavaScript's safe range.
 
 ## The messages
