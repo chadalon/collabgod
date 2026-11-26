@@ -92,15 +92,20 @@ export type UndoResult =
       /** The operation this reverses: the edit undone, or the undo redone. */
       readonly reverses: OpId;
       /**
-       * Newer entries passed over and forgotten because they were no longer in
-       * effect: someone else changed or removed what they changed.
+       * Newer confirmed entries passed over and forgotten because they were no
+       * longer in effect: someone else changed or removed what they changed.
+       * Unconfirmed edits with no effect in the view for now are passed over too,
+       * but kept, and are not listed here.
        */
       readonly skipped: readonly OpId[];
       /** Send these to the relay, in this order, as with `submit`. */
       readonly send: readonly Operation[];
     }
   | {
-      /** Nothing on this side of the history is still in effect. That side is now empty. */
+      /**
+       * Nothing on this side of the history is in effect now. All that is left
+       * on it, if anything, is unconfirmed edits that may yet take effect.
+       */
       readonly applied: false;
       readonly skipped: readonly OpId[];
     };
@@ -220,7 +225,10 @@ export class Replica {
    * written by the edit it reverses, and it puts back the revisions that were
    * there before, so the undo before it is in effect again. Edits whose fields
    * someone else has written since, or whose target is gone, are skipped and
-   * forgotten, and the next older edit is tried.
+   * forgotten, and the next older edit is tried. An unconfirmed edit with no
+   * effect in the view is passed over but kept: only the relay's order says
+   * whether it has an effect, and if it has none it comes back `rejected` and
+   * leaves the history then.
    *
    * If someone else's edit to the same thing is ordered just before the undo,
    * the undo comes back `rejected`, like any edit of this member's that had no
@@ -363,27 +371,33 @@ export class Replica {
     return { applied: true, pending, inverse: result.inverse };
   }
 
-  /** Take entries off `from` until one applies; the inverse of the one that does goes on `to`. */
+  /**
+   * Take entries off `from` until one applies; the inverse of the one that does
+   * goes on `to`. Unconfirmed entries with no effect in the view go back on
+   * `from`, in their places.
+   */
   private reverse(from: Entry[], to: Entry[]): UndoResult {
     this.checkUsable();
     const skipped: OpId[] = [];
+    const kept: Entry[] = [];
+    let result: UndoResult = { applied: false, skipped };
     for (let entry = from.pop(); entry !== undefined; entry = from.pop()) {
-      // Null: an unconfirmed operation that has no effect in the view, so most likely it will come back rejected.
-      const made =
-        entry.inverse === null ? null : this.make(entry.inverse, this.findPending(entry.opId) ?? null, true);
-      if (made?.applied === true && made.pending.entry !== null) {
+      // Only an unconfirmed operation's inverse can be null: it has no effect in the view for now, but
+      // the relay's order may yet give it one, as when someone else's removal of its target is undone.
+      if (entry.inverse === null) {
+        kept.push(entry);
+        continue;
+      }
+      const made = this.make(entry.inverse, this.findPending(entry.opId) ?? null, true);
+      if (made.applied && made.pending.entry !== null) {
         to.push(made.pending.entry);
-        return {
-          applied: true,
-          operation: made.pending.operation,
-          reverses: entry.opId,
-          skipped,
-          send: this.release(),
-        };
+        result = { applied: true, operation: made.pending.operation, reverses: entry.opId, skipped, send: this.release() };
+        break;
       }
       skipped.push(entry.opId);
     }
-    return { applied: false, skipped };
+    from.push(...kept.reverse());
+    return result;
   }
 
   /** The operation `confirmed` was just confirmed. Undos of it waiting on it can go, or go away. */

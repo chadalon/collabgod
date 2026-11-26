@@ -410,6 +410,47 @@ describe('undoing an edit the relay has not confirmed yet', () => {
     expect(sim.client(A).canRedo).toBe(false);
     expectSame(sim);
   });
+
+  it('keeps an edit that has no effect on my screen only for now, until the relay says', () => {
+    const sim = new Sim(2);
+    // B removes k1 and undoes that; both reach the relay before A hears of either.
+    edit(sim, B, { type: 'clip.remove', clipId: 'k1' });
+    sim.deliverUp(B);
+    sim.deliverDown(B);
+    applied(sim.undo(B));
+    sim.deliverUp(B);
+    // A changes k1's gain. Then B's removal reaches A, so the change has no effect on A's screen for now.
+    const gain = edit(sim, A, { type: 'clip.gain', clipId: 'k1', gain: -2 });
+    sim.deliverDown(A);
+    expect(sim.client(A).view.clips.has('k1')).toBe(false);
+    // Undo passes over it, but keeps it.
+    expect(sim.undo(A)).toEqual({ applied: false, skipped: [] });
+    expect(sim.client(A).canUndo).toBe(true);
+    // B's undo brings k1 back, and in the shared order the gain change takes effect.
+    sim.drain();
+    expect(sim.client(B).view.clips.get('k1')?.gain).toBe(-2);
+    expect(sim.rejected[A]).toBe(0);
+    expect(sim.undo(A)).toMatchObject({ applied: true, reverses: gain });
+    expectSame(sim);
+    expect(sim.client(B).view.clips.get('k1')?.gain).toBe(0);
+  });
+
+  it('undoes an older edit past an unconfirmed one with no effect for now, and keeps the newer one', () => {
+    const sim = new Sim(2);
+    const older = edit(sim, A, { type: 'tempo.set', tempo: 100 });
+    sim.drain();
+    edit(sim, B, { type: 'clip.remove', clipId: 'k1' });
+    sim.deliverUp(B);
+    const gain = edit(sim, A, { type: 'clip.gain', clipId: 'k1', gain: -2 });
+    sim.deliverDown(A);
+    expect(sim.undo(A)).toMatchObject({ applied: true, reverses: older, skipped: [] });
+    // The gain change is still on the undo side until the relay rejects it.
+    expect(sim.client(A).canUndo).toBe(true);
+    sim.drain();
+    expect(sim.received[A]?.some((r) => r.kind === 'rejected' && r.operation.id === gain)).toBe(true);
+    expect(sim.client(A).canUndo).toBe(false);
+    expectSame(sim);
+  });
 });
 
 describe('undo while the other person edits the same thing at the same moment', () => {
