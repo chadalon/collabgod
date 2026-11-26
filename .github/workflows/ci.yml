@@ -538,8 +538,6 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     env:
-      SOURCES_KEY: app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake') }}
-      CCACHE_KEY: app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
       SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
     steps:
       - uses: actions/checkout@v7
@@ -548,6 +546,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      # hashFiles works only in steps, so the keys are made here.
+      - name: Cache keys
+        shell: bash
+        run: |
+          echo "SOURCES_KEY=app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake') }}" >> "$GITHUB_ENV"
+          echo "CCACHE_KEY=app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
       - name: Restore the downloaded sources
         id: sources
         uses: actions/cache/restore@v5
@@ -656,8 +660,6 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       # The same caches as the app job (#20), with ccache here too: this job compiles the
       # same code as the Mac and takes as long.
-      CCACHE_KEY: app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
-      SOURCES_KEY: app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake') }}
       SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -678,10 +680,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Point ccache into the workspace
+      - name: Point ccache into the workspace, and make the cache keys
         run: |
           echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "SOURCES_KEY=app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake') }}" >> "$GITHUB_ENV"
+          echo "CCACHE_KEY=app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
       - name: Restore the downloaded sources
         id: sources
         uses: actions/cache/restore@v5
