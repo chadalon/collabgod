@@ -28,17 +28,21 @@ Either way the page draws from the frame's timestamp, never by counting frames.
 
 - Pull makes one bridge call per drawn frame, about 60 a second, each under a millisecond on both machines in the spike. The bridge runs on the message thread, so a slow edit there (engine-projection finding 6) delays the next frame's data with either method.
 - With pull, a frame is a round trip old when it is drawn: under a millisecond plus at most one frame. With push, it is up to one frame old.
+- With pull, the page sends the frame's queued commands before it pulls, so the frame it pulls already includes them. When it pulled first, a command took a frame longer to show with pull than with push (49.9 ms against about 25 ms at the median on the Windows desktop). In the same measurement, pushed frames reached the page just after it started drawing, so each was drawn a frame after it arrived.
+- The diagnostics time a command from when the page queues it to when a drawn frame includes it, the same way for both methods.
 - Events that are not per-frame state (an error, a peer joining) are pushed whatever this decides.
 
 ## How we will know
 
 Chad runs the app on each machine with `--diagnostics`, plays for a minute with each setting (P switches), and notes the diagnostics:
 
-| Machine | Delivery | fps | Drawn frames without new data | Bridge round trip median / p95 |
-| --- | --- | --- | --- | --- |
-| Windows desktop | push | | | |
-| Windows desktop | pull | | | |
-| Intel MacBook, macOS 13.7 | push | | | |
-| Intel MacBook, macOS 13.7 | pull | | | |
+| Machine | Delivery | fps | Drawn frames without new data | Bridge round trip median / p95 | Command to drawn frame median / p95 |
+| --- | --- | --- | --- | --- | --- |
+| Windows desktop | push | 60.0 | 6 of 1800 (0.3%) | 0.5 / 0.6 ms | 49.7 / 49.9 ms |
+| Windows desktop | pull | 60.0 | 0 of 1799 | 0.3 / 0.6 ms | 24.7 / 33.3 ms |
+| Intel MacBook, macOS 13.7 | push | | | | |
+| Intel MacBook, macOS 13.7 | pull | | | | |
+
+The Windows rows are 30 seconds each, taken on 2026-11-25 after the change that sends commands before pulling. An earlier run of about a minute each, before that change, gave the same frame rate, 3 of 6342 pushed and 0 of 3596 pulled drawn frames without new data, and a bridge round trip of 0.3 to 0.4 ms at the median.
 
 Until the engine plays (#27, #30) the frames carry only a sequence number and the app's clock, which is enough to compare delivery but not load; the comparison is worth repeating once the timeline (#31) draws real clips.
