@@ -15,7 +15,7 @@ namespace collabgod
     {
         /** The page comes from a folder on disk and reloads when it changes. */
         bool development = false;
-        /** ADR-0016: pull is the default until the comparison on both real machines decides. */
+        /** ADR-0016: pull, chosen from the comparison on both real machines. */
         bridge::FrameDelivery frameDelivery = bridge::FrameDelivery::pull;
         bool showDiagnostics = false;
         bool selfCheck = false;
