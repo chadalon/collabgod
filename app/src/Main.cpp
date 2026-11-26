@@ -176,6 +176,15 @@ namespace collabgod
                 startBridgeCheck();
 
             mainWindow = std::make_unique<MainWindow> (*host, std::move (uiSettings));
+
+            // Started from a terminal (ctest), the app is not activated and its window can open behind
+            // others. WKWebView stops requestAnimationFrame in a covered window, and pulled frames come
+            // from that loop, so the check would fail on a desktop with other windows open.
+            if (hostSettings.selfCheck)
+            {
+                juce::Process::makeForegroundProcess();
+                mainWindow->toFront (true);
+            }
         }
 
         void shutdown() override
