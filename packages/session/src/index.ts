@@ -29,6 +29,7 @@ export {
 export { isPosition, MAX_POSITION_LENGTH, positionBetween, trackPositionAt } from './position';
 export { canonical, sameClip, Session, type SessionSnapshot, type SessionView } from './session';
 export {
+  type HistoryEntry,
   opIdSource,
   type ReceiveResult,
   Replica,
@@ -36,4 +37,6 @@ export {
   type Sequenced,
   Sequencer,
   type SubmitResult,
+  type UndoHistory,
+  type UndoResult,
 } from './replica';

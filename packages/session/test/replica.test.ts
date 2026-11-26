@@ -20,7 +20,11 @@ describe('a replica working solo', () => {
     expect(me.view.timeline.tempo).toBe(128);
     expect(me.unconfirmed).toHaveLength(1);
 
-    expect(me.receive(order.next(sent.operation))).toEqual({ kind: 'confirmed', operation: sent.operation });
+    expect(me.receive(order.next(sent.operation))).toEqual({
+      kind: 'confirmed',
+      operation: sent.operation,
+      send: [],
+    });
     expect(me.unconfirmed).toHaveLength(0);
     expect(me.seq).toBe(1);
     expect(me.view.timeline.rev.tempo).toBe('chad:run1:1');
@@ -188,7 +192,7 @@ describe('a replica in a lobby', () => {
     const me = new Replica({ author: 'm', nextOpId: opIdSource('m:') });
     applied(me.submit({ type: 'tempo.set', tempo: 100 }));
     for (const junk of [null, { id: 'x' }, { id: 'y', author: 'z', change: { type: 'nope' } }]) {
-      expect(me.receive({ seq: me.seq + 1, operation: junk as never })).toEqual({ kind: 'remote', applied: false });
+      expect(me.receive({ seq: me.seq + 1, operation: junk as never })).toEqual({ kind: 'remote', applied: false, send: [] });
     }
     expect(me.seq).toBe(3);
     expect(me.view.timeline.tempo).toBe(100);
