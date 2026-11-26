@@ -634,12 +634,9 @@ jobs:
             fi
             echo ""
             # What the bridge check found in this web view: the shaders built, and its result.
-            case "$RUNNER_OS" in
-              macOS) log="$HOME/Library/Logs/CollabGod/CollabGod.log" ;;
-              Windows) log="$APPDATA/CollabGod/CollabGod.log" ;;
-            esac
+            # ctest keeps every test's output, passing ones too, in LastTest.log.
             echo '```'
-            grep -E 'Shaders:|Self-check from the page|FAIL' "$log" 2>/dev/null | tail -5 | tee /dev/stderr || echo "(no app log at $log)"
+            grep -h -E 'Shaders:|Self-check from the page|FAIL' build/Testing/Temporary/LastTest*.log 2>/dev/null | tee /dev/stderr || echo "(no ctest log)"
             echo '```'
             echo ""
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
@@ -749,7 +746,7 @@ jobs:
             echo '```'
             echo ""
             echo '```'
-            grep -E 'Shaders:|Self-check from the page|FAIL' "$HOME/.config/CollabGod/CollabGod.log" 2>/dev/null | tail -5 | tee /dev/stderr || echo "(no app log)"
+            grep -h -E 'Shaders:|Self-check from the page|FAIL' build/Testing/Temporary/LastTest*.log 2>/dev/null | tee /dev/stderr || echo "(no ctest log)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
