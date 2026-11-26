@@ -18,6 +18,7 @@ namespace collabgod
     {
         setOpaque (true);
 
+        beforeCreatingWebView (juce::Colour (bridge::backgroundArgb));
         browser = std::make_unique<juce::WebBrowserComponent> (makeOptions());
         matchWebViewBackground (*browser, juce::Colour (bridge::backgroundArgb));
         addAndMakeVisible (*browser);

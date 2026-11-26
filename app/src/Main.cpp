@@ -11,6 +11,7 @@
 #include "Log.h"
 #include "SmokeTest.h"
 #include "WebUi.h"
+#include "WebViewBackground.h"
 
 #include <iostream>
 
@@ -77,6 +78,9 @@ namespace collabgod
             setResizeLimits (640, 400, 10000, 10000);
             centreWithSize (1280, 800);
             setVisible (true);
+
+            // After the last change that recreates the native window (the title bar setting).
+            matchWindowBackground (*this, juce::Colour (bridge::backgroundArgb));
         }
 
         void closeButtonPressed() override

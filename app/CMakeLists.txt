@@ -96,6 +96,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(collabgod PRIVATE atomic)
 endif()
 
+if(WIN32)
+    # SetWindowSubclass, for the window's background while it resizes (WebViewBackground.cpp).
+    target_link_libraries(collabgod PRIVATE comctl32)
+endif()
+
 if(APPLE)
     # Tracktion Engine needs this with Apple clang, as its own examples do.
     target_compile_options(collabgod PRIVATE -fno-aligned-allocation)

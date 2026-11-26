@@ -9,6 +9,10 @@
 
 namespace collabgod
 {
+    void beforeCreatingWebView (juce::Colour) {}
+
+    void matchWindowBackground (juce::Component&, juce::Colour) {}
+
     void matchWebViewBackground (juce::WebBrowserComponent& browser, juce::Colour colour)
     {
         // JUCE hosts the WKWebView in an NSViewComponent, the browser's only child.
