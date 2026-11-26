@@ -6,12 +6,14 @@
 
 import { build } from 'esbuild';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 const out = new URL('./dist/cpp/', import.meta.url);
 
 // The generator and the contract are TypeScript; bundle them for Node and load the result.
 const bundled = await build({
-  entryPoints: [new URL('./src/generate.ts', import.meta.url).pathname],
+  // A path, not URL.pathname, which is /D:/... on Windows.
+  entryPoints: [fileURLToPath(new URL('./src/generate.ts', import.meta.url))],
   bundle: true,
   format: 'esm',
   platform: 'neutral',
@@ -27,7 +29,7 @@ await mkdir(out, { recursive: true });
 for (const file of generateCpp(contract)) {
   const target = new URL(file.name, out);
   await writeFile(target, file.text);
-  console.log(`Wrote ${target.pathname}`);
+  console.log(`Wrote ${fileURLToPath(target)}`);
 }
 
 // A stamp CMake can check, so a configure with no generated headers fails with a clear message.

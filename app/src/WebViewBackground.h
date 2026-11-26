@@ -3,7 +3,9 @@
 
 #pragma once
 
-#include <JuceHeader.h>
+// Only the module it needs, not JuceHeader.h: that adds `using namespace juce`, and
+// WebViewBackground_mac.mm also sees Carbon's global Component, which would clash.
+#include <juce_gui_extra/juce_gui_extra.h>
 
 namespace collabgod
 {

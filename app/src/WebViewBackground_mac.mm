@@ -1,9 +1,11 @@
 // CollabGod. Copyright (C) 2026 chadalon and contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "WebViewBackground.h"
-
+// System headers first, as JUCE's own .mm files do: WebKit brings in Carbon, which
+// declares a global Component.
 #import <WebKit/WebKit.h>
+
+#include "WebViewBackground.h"
 
 namespace collabgod
 {
