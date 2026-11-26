@@ -43,4 +43,5 @@ The page also sends these to the app every 30 seconds, which writes them to its 
 - **Redraw the moment the size changes**, in the `ResizeObserver` callback, as `src/surface.ts` does (`webview-ui` finding 11).
 - **Animate from timestamps, never by counting frames**: the app's display refresh and the page's do not line up (`webview-ui` finding 6). `FrameFeed.hostTimeNowMs` gives the app's clock now.
 - **Send engine commands only through `CommandQueue`**: at most one batch per display frame.
+- **Nothing but drawing may depend on the drawing loop.** A covered or minimised window stops `requestAnimationFrame`: on the Mac it stopped entirely in the #26 checks. Pulled engine frames stop with it (ADR-0016). Work that must go on while the window is out of sight, such as applying another member's edits, runs from the bridge's events and timers, never from frames. `CommandQueue` already sends after 100 ms when no frame comes.
 - **The background colour is the contract's `backgroundColour`**, so the web view and the window match the page before it draws. `test/page.test.ts` checks `index.html`.
