@@ -510,7 +510,24 @@ jobs:
 
   # The app, built and tested with the one command each that a developer uses (#19).
   # The cold build takes minutes, so it runs only when something it uses changed.
-  # Caching and the rest of the app's CI come with #20.
+  #
+  # Caching (#20). The 15-minute budget was met cold (about 5 to 9 minutes in Nov 2026),
+  # and two caches keep it there as the app grows:
+  # - The downloaded sources: JUCE, Tracktion Engine and, on Windows, the WebView2 SDK,
+  #   about 250 MB fetched at configure time. Keyed on the files that pin them, so moving
+  #   a pin downloads afresh. The fetch script sees the commit already there, and the
+  #   Tracktion patches are skipped where already applied (cmake/TracktionPatches.cmake).
+  # - ccache on macOS, the slower runner to compile. CMake gets it through
+  #   CMAKE_<LANG>_COMPILER_LAUNCHER. Windows builds with the Visual Studio generator,
+  #   which ignores compiler launchers; if its time grows, Ninja with ccache or sccache
+  #   there is the next step.
+  # Both caches are saved only by runs on main (push, the weekly run, a run started by
+  # hand), never by pull requests, so every pull request starts from main's caches and
+  # none crowds the others out of the repository's 10 GB.
+  #
+  # The tests need no audio device or GPU (see app/CMakeLists.txt). A frame-rate check
+  # here would only be informational, with continue-on-error as in the web view spike:
+  # the runners have no GPU and failed a benchmark both real machines passed.
   app:
     name: App (${{ matrix.os }})
     needs: changes
@@ -520,6 +537,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+    env:
+      SOURCES_KEY: app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake') }}
+      CCACHE_KEY: app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
+      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -527,22 +548,86 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Build everything (downloads JUCE, Tracktion Engine and, on Windows, the WebView2 SDK)
+      - name: Restore the downloaded sources
+        id: sources
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build/_deps/juce-src
+            build/_deps/tracktion-src
+            build/_deps/webview2
+          key: ${{ env.SOURCES_KEY }}
+      - name: Install ccache (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
+          brew install ccache
+          ccache --version | head -1
+          {
+            echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_MAXSIZE=500M"
+            for lang in C CXX OBJC OBJCXX; do echo "CMAKE_${lang}_COMPILER_LAUNCHER=ccache"; done
+          } >> "$GITHUB_ENV"
+      - name: Restore the compiler cache (macOS)
+        if: runner.os == 'macOS'
+        id: ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: .ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ env.CCACHE_KEY }}-
+            app-ccache-${{ matrix.os }}-
+      - name: Build everything (downloads JUCE, Tracktion Engine and, on Windows, the WebView2 SDK, unless cached)
+        id: build
+        run: |
+          if command -v ccache >/dev/null; then ccache --zero-stats >/dev/null; fi
           start=$(date +%s)
           npm run build
           echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
         shell: bash
+      # Saved before the tests, so a failing test does not throw away a good build's cache.
+      - name: Save the downloaded sources
+        if: env.SAVE_CACHES == 'true' && steps.sources.outputs.cache-hit != 'true' && steps.build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/_deps/juce-src
+            build/_deps/tracktion-src
+            build/_deps/webview2
+          key: ${{ env.SOURCES_KEY }}
+      - name: Save the compiler cache (macOS)
+        if: runner.os == 'macOS' && env.SAVE_CACHES == 'true' && steps.build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
       - name: Run every test
         run: npm test
       - name: Record times
         if: always()
         shell: bash
+        env:
+          SOURCES_HIT: ${{ steps.sources.outputs.cache-hit }}
+          CCACHE_RESTORED: ${{ steps.ccache.outputs.cache-matched-key }}
         run: |
           {
             echo "### App on ${{ matrix.os }}"
             echo ""
-            echo "Cold build, including downloads: ${BUILD_SECONDS:-failed} s"
+            echo "Build, including any downloads: ${BUILD_SECONDS:-failed} s"
+            echo ""
+            echo "- Downloaded sources from the cache: ${SOURCES_HIT:-false}"
+            if command -v ccache >/dev/null; then
+              echo "- Compiler cache restored from: ${CCACHE_RESTORED:-nothing (cold)}"
+              echo ""
+              echo '```'
+              ccache --show-stats
+              echo '```'
+            fi
             echo ""
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -569,11 +654,19 @@ jobs:
       CC: clang-15
       CXX: clang++-15
       DEBIAN_FRONTEND: noninteractive
+      # The same caches as the app job (#20), with ccache here too: this job compiles the
+      # same code as the Mac and takes as long.
+      CCACHE_KEY: app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
+      SOURCES_KEY: app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake') }}
+      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_MAXSIZE: 500M
     steps:
       - name: Install clang 15, the build tools and JUCE's Linux dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git cmake make \
+          apt-get install -y --no-install-recommends ca-certificates git cmake make ccache zstd \
             clang-15 libstdc++-13-dev \
             libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
@@ -585,10 +678,63 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - name: Point ccache into the workspace
+        run: |
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Restore the downloaded sources
+        id: sources
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build/_deps/juce-src
+            build/_deps/tracktion-src
+          key: ${{ env.SOURCES_KEY }}
+      - name: Restore the compiler cache
+        id: ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: .ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ env.CCACHE_KEY }}-
+            app-ccache-clang-15-
       - name: Build the app with clang 15
-        run: npm run build:app
+        id: build
+        run: |
+          ccache --zero-stats >/dev/null
+          npm run build:app
+      - name: Save the downloaded sources
+        if: env.SAVE_CACHES == 'true' && steps.sources.outputs.cache-hit != 'true' && steps.build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/_deps/juce-src
+            build/_deps/tracktion-src
+          key: ${{ env.SOURCES_KEY }}
+      - name: Save the compiler cache
+        if: env.SAVE_CACHES == 'true' && steps.build.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
       - name: Test the app (under xvfb-run)
         run: npm run test:app
+      - name: Record the compiler cache
+        if: always()
+        env:
+          CCACHE_RESTORED: ${{ steps.ccache.outputs.cache-matched-key }}
+        run: |
+          {
+            echo "### App with clang 15"
+            echo ""
+            echo "- Downloaded sources from the cache: ${{ steps.sources.outputs.cache-hit || 'false' }}"
+            echo "- Compiler cache restored from: ${CCACHE_RESTORED:-nothing (cold)}"
+            echo ""
+            echo '```'
+            ccache --show-stats
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # One stable check name for branch protection to require, however many jobs exist above.
   passed:

@@ -11,6 +11,7 @@ import {
 } from '@collabgod/bridge';
 import { type Diagnostics, formatDiagnostics, type HostInfo, ProbeTracker } from './diagnostics';
 import { type FrameDelivery, FrameFeed } from './feed';
+import type { ShaderGl } from './glsl';
 import { runSelfCheck } from './selfcheck';
 import { RateMeter, RollingTimings } from './stats';
 import { Surface } from './surface';
@@ -81,6 +82,7 @@ export class Shell {
         waitFor,
         now: () => performance.now(),
         recordRoundTrip: (ms) => this.roundTrip.push(ms),
+        webgl: offscreenWebgl,
       });
       console.info('Bridge self-check', report);
     }
@@ -172,4 +174,14 @@ function waitFor(ready: () => boolean, timeoutMs: number): Promise<void> {
     };
     poll();
   });
+}
+
+/** A WebGL2 context on a canvas of its own, for the self-check's shader step. */
+function offscreenWebgl(): { gl: ShaderGl; renderer: string; release: () => void } | undefined {
+  const gl = document.createElement('canvas').getContext('webgl2');
+  if (gl === null) return undefined;
+  // WebKit masks the GPU's name (webview-ui finding 4); WebView2 reports it.
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const renderer = String(gl.getParameter(info === null ? gl.RENDERER : info.UNMASKED_RENDERER_WEBGL));
+  return { gl, renderer, release: () => gl.getExtension('WEBGL_lose_context')?.loseContext() };
 }
