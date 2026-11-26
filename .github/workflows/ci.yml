@@ -634,9 +634,14 @@ jobs:
             fi
             echo ""
             # What the bridge check found in this web view: the shaders built, and its result.
-            # ctest keeps every test's output, passing ones too, in LastTest.log.
+            # ctest keeps every test's output, passing ones too, in LastTest.log. On Windows the
+            # app is a GUI program whose standard output goes nowhere, so read its log file.
+            logs=(build/Testing/Temporary/LastTest*.log)
+            if [ "$RUNNER_OS" = Windows ]; then
+              while IFS= read -r f; do logs+=("$f"); done < <(find "$(cygpath -u "$USERPROFILE")/AppData" -name CollabGod.log 2>/dev/null)
+            fi
             echo '```'
-            grep -h -E 'Shaders:|Self-check from the page|FAIL' build/Testing/Temporary/LastTest*.log 2>/dev/null | tee /dev/stderr || echo "(no ctest log)"
+            grep -h -E 'Log file:|Shaders:|Self-check from the page|FAIL' "${logs[@]}" 2>/dev/null | tee /dev/stderr || echo "(no log)"
             echo '```'
             echo ""
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
