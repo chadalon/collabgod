@@ -540,7 +540,7 @@ jobs:
     env:
       SOURCES_KEY: app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake') }}
       CCACHE_KEY: app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
-      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -658,7 +658,7 @@ jobs:
       # same code as the Mac and takes as long.
       CCACHE_KEY: app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}
       SOURCES_KEY: app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake') }}
-      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_MAXSIZE: 500M
