@@ -87,16 +87,17 @@ export class Shell {
   }
 
   private receive(frame: Parameters<FrameFeed['receive']>[0]): void {
-    const now = performance.now();
-    this.feed.receive(frame, now);
-    this.probes.seen(frame.lastProbe, now);
+    this.feed.receive(frame, performance.now());
   }
 
   private tick(timestamp: number): void {
     requestAnimationFrame((t) => this.tick(t));
     this.drawRate.tick(timestamp);
 
+    // This frame's commands go before the pull, so the frame pulled now already includes them.
+    this.queue.flush();
     const frame = this.feed.beginDraw();
+    // A command counts as shown when a frame that includes it is drawn, pushed or pulled alike.
     if (frame !== undefined) this.probes.seen(frame.lastProbe, performance.now());
 
     this.surface.draw({

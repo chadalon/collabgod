@@ -71,7 +71,12 @@ export class CommandQueue {
     return this.queued.length;
   }
 
-  private flush(): void {
+  /**
+   * Sends what is queued now, as this display frame's batch, instead of waiting for the
+   * queue's own animation frame callback. A page that pulls engine frames calls it as
+   * it starts drawing, before the pull, so the frame it pulls already includes them.
+   */
+  flush(): void {
     if (this.frameHandle !== undefined) this.scheduler.cancelFrame(this.frameHandle);
     if (this.timerHandle !== undefined) this.scheduler.clearTimeout(this.timerHandle);
     this.frameHandle = undefined;

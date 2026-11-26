@@ -76,6 +76,22 @@ describe('CommandQueue', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('sends at once when flushed, and not again on the frame or the fallback', () => {
+    const { q, sent, clock } = queue();
+    q.flush();
+    expect(sent).toHaveLength(0); // nothing queued, nothing sent
+    q.push('probe', { id: 1 });
+    q.push('probe', { id: 2 });
+    q.flush();
+    expect(sent).toEqual([[1, 2].map((id) => ({ type: 'probe', args: { id } }))]);
+    expect(clock.frames.size).toBe(0);
+    expect(clock.timers.size).toBe(0);
+    clock.frame();
+    clock.fireTimers();
+    expect(sent).toHaveLength(1);
+    expect(q.batches).toBe(1);
+  });
+
   it('checks arguments when a command is queued', () => {
     const { q, clock } = queue();
     expect(() => q.push('probe', { id: 1.5 })).toThrow('probe.args.id is 1.5, not a whole number');

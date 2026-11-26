@@ -2,8 +2,8 @@
 //
 // What the page measures about the bridge, for the diagnostics panel and the app's log:
 // the round trip of a ping (the bridge on its own, ADR-0002 measured 0.1 ms on Windows
-// and under 1 ms on the Mac at the median), how long a command takes to show in a frame,
-// and how many drawn frames had no new engine data.
+// and under 1 ms on the Mac at the median), how long a command takes until a drawn frame
+// includes it, and how many drawn frames had no new engine data.
 
 import type { Diagnostics as DiagnosticsSchema, HostInfo as HostInfoSchema, Infer } from '@collabgod/bridge';
 import { RollingTimings, type TimingSummary } from './stats';
@@ -11,7 +11,7 @@ import { RollingTimings, type TimingSummary } from './stats';
 export type Diagnostics = Infer<typeof DiagnosticsSchema>;
 export type HostInfo = Infer<typeof HostInfoSchema>;
 
-/** Probe commands in flight, and how long each took to show in a frame's lastProbe. */
+/** Probe commands in flight, and how long each took until a drawn frame's lastProbe included it. */
 export class ProbeTracker {
   private nextId = 1;
   private readonly sentAt = new Map<number, number>();
@@ -24,7 +24,7 @@ export class ProbeTracker {
     return id;
   }
 
-  /** A frame arrived: every probe up to its lastProbe has been carried out. */
+  /** A frame is being drawn: every probe up to its lastProbe has been carried out. */
   seen(lastProbe: number, nowMs: number): void {
     for (const [id, at] of this.sentAt) {
       if (id <= lastProbe) {
@@ -52,7 +52,7 @@ export function formatDiagnostics(host: HostInfo | undefined, d: Diagnostics): s
         (host.development ? ' · development: reloads when the page is rebuilt' : ''),
     `Frames: ${d.frameDelivery}, ${d.framesPerSecond} fps drawn, ${d.staleFrames} of ${d.drawnFrames} without new engine data (${stalePercent.toFixed(1)}%)`,
     `Bridge round trip: ${ms(d.roundTrip)}`,
-    `Command to frame: ${ms(d.probe)}`,
+    `Command to drawn frame: ${ms(d.probe)}`,
     `Engine commands: ${d.commands} in ${d.commandBatches} batches`,
     'P switches push and pull · Ctrl+Shift+D (Cmd+Shift+D on a Mac) hides this',
   ].join('\n');
