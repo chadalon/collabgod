@@ -538,7 +538,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     env:
-      SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
+      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -639,7 +639,7 @@ jobs:
               Windows) log="$APPDATA/CollabGod/CollabGod.log" ;;
             esac
             echo '```'
-            grep -E 'Shaders:|Self-check from the page|FAIL' "$log" 2>/dev/null | tail -5 || echo "(no app log at $log)"
+            grep -E 'Shaders:|Self-check from the page|FAIL' "$log" 2>/dev/null | tail -5 | tee /dev/stderr || echo "(no app log at $log)"
             echo '```'
             echo ""
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
@@ -669,7 +669,7 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       # The same caches as the app job (#20), with ccache here too: this job compiles the
       # same code as the Mac and takes as long.
-      SAVE_CACHES: true # TEMPORARY, to measure a warm run on this PR; reverted before review
+      SAVE_CACHES: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_MAXSIZE: 500M
@@ -749,7 +749,7 @@ jobs:
             echo '```'
             echo ""
             echo '```'
-            grep -E 'Shaders:|Self-check from the page|FAIL' "$HOME/.config/CollabGod/CollabGod.log" 2>/dev/null | tail -5 || echo "(no app log)"
+            grep -E 'Shaders:|Self-check from the page|FAIL' "$HOME/.config/CollabGod/CollabGod.log" 2>/dev/null | tail -5 | tee /dev/stderr || echo "(no app log)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
