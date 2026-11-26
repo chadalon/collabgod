@@ -177,7 +177,7 @@ The app writes projects, and the sample location table, with `writeFileAtomicall
 
 1. The text goes to a new temporary file in the same folder, `.<name>.<random>.tmp`.
 2. The temporary file is flushed to the disk: `FlushFileBuffers` on Windows, `fsync` on Linux, `F_FULLFSYNC` on macOS.
-3. It is renamed over the project in one step: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` elsewhere. On Linux and macOS the folder is then flushed as well.
+3. It is renamed over the project in one step: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` elsewhere. On Linux and macOS the folder is then flushed as well. On Windows another program reading the project at that moment (a virus scanner, the search indexer) can make the rename fail with a sharing error, so it is tried again for up to a second.
 4. If anything fails before the rename, the temporary file is removed and the old project is untouched.
 
 A crash can leave a temporary file behind, which is never read. `CollabGod --project-file-test` checks all of this, including a writer killed at random moments while it saves, twenty times over.

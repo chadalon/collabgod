@@ -71,12 +71,25 @@ namespace collabgod
         juce::Result renameOver (const juce::File& temporary, const juce::File& target)
         {
             // One rename on the same volume: atomic on NTFS. WRITE_THROUGH returns only once it is on disk.
-            if (MoveFileExW (temporary.getFullPathName().toWideCharPointer(),
-                             target.getFullPathName().toWideCharPointer(),
-                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0)
-                return lastError ("cannot replace " + target.getFullPathName());
+            // Another program reading the project at that moment (a virus scanner, the search indexer, a
+            // backup) can make the rename fail with a sharing error; that passes, so try again for a while.
+            for (int attempt = 0;; ++attempt)
+            {
+                if (MoveFileExW (temporary.getFullPathName().toWideCharPointer(),
+                                 target.getFullPathName().toWideCharPointer(),
+                                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0)
+                    return juce::Result::ok();
 
-            return juce::Result::ok();
+                const auto code = GetLastError();
+                const auto passing = code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION;
+                if (! passing || attempt == 40)
+                {
+                    SetLastError (code);
+                    return lastError ("cannot replace " + target.getFullPathName());
+                }
+
+                Sleep (25);
+            }
         }
        #else
         juce::Result lastError (const juce::String& what)

@@ -13,7 +13,8 @@ namespace collabgod
         The bytes go to a new temporary file beside the target, which is flushed to the disk
         and then renamed over the target in one step. On POSIX the folder is flushed too, so
         the rename itself survives a power cut; on macOS the flush is F_FULLFSYNC, since a
-        plain fsync there does not reach the disk. If anything fails before the rename, the
+        plain fsync there does not reach the disk. On Windows a rename refused because another
+        program has the file open is tried again for up to a second. If anything fails before the rename, the
         temporary file is removed and the target is untouched. A temporary file can be left
         behind only by a crash; it is named `.<target name>.<random>.tmp` and is never read.
 

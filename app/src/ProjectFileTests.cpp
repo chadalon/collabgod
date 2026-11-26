@@ -173,22 +173,32 @@ namespace collabgod
             {
                 juce::ChildProcess writer;
                 if (! results.expect (writer.start (juce::StringArray { self.getFullPathName(), "--project-file-crash-writer",
-                                                                        target.getFullPathName() }, 0),
+                                                                        target.getFullPathName() },
+                                                    juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr),
                                       "the crash writer starts"))
                     return;
 
-                // Wait until it is writing: the file moves on from the generation it was left at.
+                // Wait until it is writing: the file holds a whole generation newer than the last.
                 const auto deadline = juce::Time::getMillisecondCounter() + 30000;
-                while (wholeGenerationIn (target) == last && writer.isRunning() && juce::Time::getMillisecondCounter() < deadline)
-                    juce::Thread::sleep (2);
+                while (wholeGenerationIn (target) <= last && writer.isRunning() && juce::Time::getMillisecondCounter() < deadline)
+                    juce::Thread::sleep (5);
 
                 juce::Thread::sleep (random.nextInt (40));
+
+                // It only stops by itself if a save failed, which it reports.
+                if (! writer.isRunning())
+                {
+                    results.expect (false, "the crash writer stopped by itself: " + writer.readAllProcessOutput().trim());
+                    return;
+                }
+
                 writer.kill();
                 writer.waitForProcessToFinish (10000);
 
                 const auto now = wholeGenerationIn (target);
                 results.expect (now >= 0, "after kill " + juce::String (round + 1) + " the file holds one whole generation");
                 results.expect (now > last, "after kill " + juce::String (round + 1) + " the writer had saved");
+
                 // A kill in the middle of a write leaves that write's temporary file behind.
                 const auto temporaries = temporariesBeside (target);
                 if (temporaries > leftOver)
@@ -214,8 +224,12 @@ namespace collabgod
         for (;;)
         {
             const auto next = generation (++number);
-            if (writeFileAtomically (target, next.getData(), next.getSize()).failed())
+            const auto result = writeFileAtomically (target, next.getData(), next.getSize());
+            if (result.failed())
+            {
+                std::cout << "generation " << number << ": " << result.getErrorMessage() << std::endl;
                 return 1;
+            }
         }
     }
 
