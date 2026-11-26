@@ -1,8 +1,8 @@
 # ADR-0015: The bridge contract is written once in TypeScript, and the app's C++ is generated from it
 
-- **Status:** Proposed
-- **Date:** 2026-11-25
-- **Deciders:**
+- **Status:** Accepted
+- **Date:** 2026-11-25 (accepted 2026-11-26)
+- **Deciders:** Chad
 
 ## Context
 
@@ -30,10 +30,12 @@ Engine-projection finding 6 adds a constraint on the shape of the bridge: every 
 
 - A change to a message is one edit in `contract.ts`, then `npm run build`. The C++ compiler then points at every handler that no longer fits.
 - The C++ build needs the TypeScript build first. `npm run build` and `npm run build -- --only app` do that; configuring with CMake directly fails with a message saying so.
-- The schema language is deliberately small. Optional fields, unions other than commands, maps and binary data are not in it. Sample transfer will want binary data; it does not go over this bridge (ADR-0008), but if something else needs it, the schema language grows here first, with the generator and both codecs.
+- The schema language is deliberately small. Optional fields, unions other than commands, maps and binary data are not in it. Sample transfer will want binary data; it does not go over this bridge (ADR-0008), but if something else needs it, the schema language grows here first, with the generator and both codecs. The first likely case is plugin state in Phase 3, which can be megabytes (#13). JUCE's bridge carries only JSON, so it would cross as base64 whatever this record says; measure first whether it should cross at all, or stay in C++ with only its hash crossing.
 - Commands are fire-and-forget. A command whose effect must be seen is seen in a later frame, as the probe command is.
 - The generated `dispatch` runs on the message thread. A handler must answer quickly and must never wait on the audio thread.
 
 ## How we will know
 
 The contract tests on both sides and `--bridge-check` run in CI on Windows and macOS (#26, #20). If a bridge bug reaches a person that these should have caught, or if the generator gets in the way of a change more than it helps, this is revisited.
+
+Accepted on 2026-11-26, after the checks on [chadalon/collabgod#156](https://github.com/chadalon/collabgod/pull/156): both maintainer machines and CI on Windows, macOS and Linux (clang 15). None of the fixes found on the way needed a change to the contract or the generator.
