@@ -633,6 +633,15 @@ jobs:
               echo '```'
             fi
             echo ""
+            # What the bridge check found in this web view: the shaders built, and its result.
+            case "$RUNNER_OS" in
+              macOS) log="$HOME/Library/Logs/CollabGod/CollabGod.log" ;;
+              Windows) log="$APPDATA/CollabGod/CollabGod.log" ;;
+            esac
+            echo '```'
+            grep -E 'Shaders:|Self-check from the page|FAIL' "$log" 2>/dev/null | tail -5 || echo "(no app log at $log)"
+            echo '```'
+            echo ""
             echo "Runner: $(uname -a), $(nproc 2>/dev/null || sysctl -n hw.ncpu) cores"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -737,6 +746,10 @@ jobs:
             echo ""
             echo '```'
             ccache --show-stats
+            echo '```'
+            echo ""
+            echo '```'
+            grep -E 'Shaders:|Self-check from the page|FAIL' "$HOME/.config/CollabGod/CollabGod.log" 2>/dev/null | tail -5 || echo "(no app log)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
