@@ -287,8 +287,10 @@ jobs:
             echo "No spike changed, so the spike jobs are skipped."
             echo "spikes=false" >> "$GITHUB_OUTPUT"
           fi
-          # The app: its C++, the root CMake and the root build scripts that drive it.
-          if grep -qE '^(app/|cmake/|CMakeLists\.txt$|scripts/|package(-lock)?\.json$|\.github/workflows/ci\.yml$)' "$RUNNER_TEMP/changed.txt"; then
+          # The app: its C++, the root CMake and the root build scripts that drive it, and the
+          # two packages it is built from: the bridge contract, generated as C++, and the
+          # interface's page, which the app copies beside itself and its bridge check runs.
+          if grep -qE '^(app/|cmake/|CMakeLists\.txt$|scripts/|packages/(bridge|interface)/|package(-lock)?\.json$|\.github/workflows/ci\.yml$)' "$RUNNER_TEMP/changed.txt"; then
             echo "app=true" >> "$GITHUB_OUTPUT"
           else
             echo "Nothing the app's C++ build uses changed, so it is skipped."
