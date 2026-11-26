@@ -5,6 +5,7 @@ import {
   canonical,
   type Change,
   fileTimeAt,
+  type MemberVerifier,
   type NewClip,
   type Operation,
   type SampleRef,
@@ -16,6 +17,9 @@ import {
 export const hash = (n: number): string => n.toString(16).padStart(64, '0');
 
 export const sample = (n: number, name = `sample-${n}.wav`): SampleRef => ({ fileHash: hash(n), name });
+
+/** A well-formed verifier for a member's secret, for test number `n`. */
+export const verifier = (n: number): MemberVerifier => ({ scheme: 'sha256', value: hash(0x5ec + n) });
 
 export function newClip(
   id: string,

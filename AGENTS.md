@@ -33,6 +33,7 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 - **The audio thread never blocks.** No locks, allocation, file or network calls, or logging on it.
 - **A member is not a connection.** A person is a member saved in the project, with an opaque id the app makes. A dropped connection ends their presence, never their membership. Nothing in the protocol, the session format or the model may assume two people; the limit is a relay setting. See ADR-0006.
 - **Samples are identified by content hash.** A local file path never goes into a session or over the network. Plugin files never leave a machine.
+- **The project file is a contract between versions.** Changing what it holds means a new format version, a migration and a new example file kept for good. See [`docs/project-format.md`](docs/project-format.md).
 - **Spikes are throwaway.** Code under `spikes/` answers a question. Product code never imports from it.
 - **Licensing.** The project is GPL-3.0-or-later. Do not copy code from other DAWs. A new dependency must be GPLv3-compatible and listed in `THIRD_PARTY.md` once that file exists. Everyone except Chad agrees to [`CLA.md`](CLA.md) by adding their own line to `CLA-SIGNATURES.md`, maintainers included; an agent never adds or edits a line there. Work you do for Chad is Chad's contribution and needs no line. Work you do for anyone else needs that person's own line.
 - **Decisions with lasting consequences get an ADR**, opened as Proposed.
@@ -49,9 +50,10 @@ The current phase is the earliest [milestone](../../milestones) that still has o
 | root | `npm run build -- --config Debug` | A Debug build in `build/` (`Release` is the default); test it with `npm test -- --config Debug` |
 | root | `npm test -w @collabgod/session` | Only the session model: unit, property, convergence and timing tests. `npm run typecheck -w @collabgod/session` checks it with no Node or browser types, so it stays pure |
 | root | `FC_SCALE=40 npm test -w @collabgod/session` | The session model's property tests with 40 times as many random cases |
+| root | `npm test -w @collabgod/project` | Only the project file: saving, loading, migrations, the example files, sample locations, and save-and-load of random sessions. `FC_SCALE=40` works here too |
 | root | `npm run build -w @collabgod/bridge` | Generate the app's C++ side of the bridge contract into `packages/bridge/dist/cpp` (`npm run build` does this first) |
 | root | `npm run dev -w @collabgod/interface` | Rebuild the interface's page on every save; a Debug build of the app, or any build with `--dev`, reloads it |
-| root | `build/app/collabgod_artefacts/Release/CollabGod --bridge-check` | Open the window and run every bridge message through the real web view, then close it; exit 0 if it passed (`ctest` runs it). `--bridge-test` runs the app's contract tests without a window. `--help` lists the rest |
+| root | `build/app/collabgod_artefacts/Release/CollabGod --bridge-check` | Open the window and run every bridge message through the real web view, then close it; exit 0 if it passed (`ctest` runs it). `--bridge-test` runs the app's contract tests without a window, and `--project-file-test` the atomic save tests, with a writer killed while it saves. `--help` lists the rest |
 | `spikes/session-model` | `npm ci` | Install pinned dependencies (Node 22 or newer) |
 | `spikes/session-model` | `npm test` | Unit, scenario and property tests |
 | `spikes/session-model` | `npm run typecheck` | Strict TypeScript check |

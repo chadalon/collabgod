@@ -13,7 +13,7 @@ import {
   type SubmitResult,
   type UndoResult,
 } from '../src';
-import { trimTo } from './helpers';
+import { trimTo, verifier } from './helpers';
 import { Sim } from './sim';
 
 const A = 0;
@@ -111,7 +111,7 @@ describe('undo and redo working solo', () => {
 
   it('does not offer to undo adding a member, which is never deleted', () => {
     const { me, edit: make, undo } = alone();
-    make({ type: 'member.add', member: { id: 'chad', name: 'Chad', colour: '#ff8800' } });
+    make({ type: 'member.add', member: { id: 'chad', name: 'Chad', colour: '#ff8800', verifier: verifier(1) } });
     expect(me.canUndo).toBe(false);
     expect(undo().applied).toBe(false);
     expect(me.view.members.has('chad')).toBe(true);
@@ -551,6 +551,19 @@ describe('undo history belongs to the member, not the connection', () => {
     expect(view.tracks.get('t1')?.name).toBe('Drums');
     expect(view.clips.get('k1')?.start).toBe(480);
     expect(view.clips.get('k2')?.gain).toBe(2);
+  });
+
+  it('puts back who made an older edit, on a replica built after that edit was overwritten', () => {
+    const sim = new Sim(2);
+    edit(sim, B, { type: 'clip.gain', clipId: 'k1', gain: -3 });
+    sim.drain();
+    edit(sim, A, { type: 'clip.gain', clipId: 'k1', gain: 6 });
+    sim.drain();
+    // B starts again from a snapshot that no longer names its own edit anywhere.
+    sim.restart(B, 'run2');
+    applied(sim.undo(A));
+    expectSame(sim);
+    expect(sim.client(B).view.clips.get('k1')).toMatchObject({ gain: -3, by: { gain: 'm1' }, createdBy: 'm0' });
   });
 
   it('is empty on a new replica not given it', () => {

@@ -1,0 +1,34 @@
+{
+  "format": "collabgod.project",
+  "version": 1,
+  "seq": 11,
+  "timeline": {"tempo":92.5,"timeSignature":{"numerator":7,"denominator":8},"rev":{"tempo":"chad:run1:2","timeSignature":"chad:run1:3"},"by":{"tempo":"chad","timeSignature":"chad"}},
+  "members": [
+    {"id":"chad","name":"Chad","colour":"#ff8800","removed":false,"verifier":{"scheme":"sha256","value":"00000000000000000000000000000000000000000000000000000000000005ec"},"createdBy":"chad","rev":{"name":"chad:run1:1","colour":"chad:run1:1","removed":"chad:run1:1"},"by":{"name":"chad","colour":"chad","removed":"chad"}}
+  ],
+  "tracks": [
+    {"id":"t1","name":"Drums","position":"i","createdBy":"chad","rev":{"name":"chad:run1:4","position":"chad:run1:4"},"by":{"name":"chad","position":"chad"}},
+    {"id":"t2","name":"Bass","position":"r","createdBy":"chad","rev":{"name":"chad:run1:5","position":"chad:run1:5"},"by":{"name":"chad","position":"chad"}}
+  ],
+  "clips": [
+    {"id":"k1","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000001","name":"kick.wav"},"trackId":"t1","start":0,"length":960,"offset":0,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:6","start":"chad:run1:6","length":"chad:run1:6","offset":"chad:run1:6","gain":"chad:run1:6","fadeIn":"chad:run1:6","fadeOut":"chad:run1:6"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}},
+    {"id":"k2","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000002","name":"snare.wav"},"trackId":"t1","start":1920,"length":960,"offset":0,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:7","start":"chad:run1:7","length":"chad:run1:7","offset":"chad:run1:7","gain":"chad:run1:7","fadeIn":"chad:run1:7","fadeOut":"chad:run1:7"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}},
+    {"id":"k3","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000003","audioHash":"0000000000000000000000000000000000000000000000000000000000000021","name":"sub.aif"},"trackId":"t2","start":370,"length":3470,"offset":0.25,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:8","start":"chad:run1:9","length":"chad:run1:9","offset":"chad:run1:9","gain":"chad:run1:8","fadeIn":"chad:run1:8","fadeOut":"chad:run1:8"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}}
+  ],
+  "history": {
+    "member": "chad",
+    "undo": [
+      {"opId":"chad:run1:2","inverse":{"type":"timeline.patch","set":{"tempo":120},"expect":{"tempo":"chad:run1:2"},"restore":{"tempo":""},"restoreBy":{"tempo":""}}},
+      {"opId":"chad:run1:3","inverse":{"type":"timeline.patch","set":{"timeSignature":{"numerator":4,"denominator":4}},"expect":{"timeSignature":"chad:run1:3"},"restore":{"timeSignature":""},"restoreBy":{"timeSignature":""}}},
+      {"opId":"chad:run1:4","inverse":{"type":"track.remove","trackId":"t1","ifUnchanged":{"track":{"id":"t1","name":"Drums","position":"i","createdBy":"chad","rev":{"name":"chad:run1:4","position":"chad:run1:4"},"by":{"name":"chad","position":"chad"}},"clips":[]}}},
+      {"opId":"chad:run1:5","inverse":{"type":"track.remove","trackId":"t2","ifUnchanged":{"track":{"id":"t2","name":"Bass","position":"r","createdBy":"chad","rev":{"name":"chad:run1:5","position":"chad:run1:5"},"by":{"name":"chad","position":"chad"}},"clips":[]}}},
+      {"opId":"chad:run1:6","inverse":{"type":"clip.remove","clipId":"k1","ifClip":{"id":"k1","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000001","name":"kick.wav"},"trackId":"t1","start":0,"length":960,"offset":0,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:6","start":"chad:run1:6","length":"chad:run1:6","offset":"chad:run1:6","gain":"chad:run1:6","fadeIn":"chad:run1:6","fadeOut":"chad:run1:6"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}}}},
+      {"opId":"chad:run1:7","inverse":{"type":"clip.remove","clipId":"k2","ifClip":{"id":"k2","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000002","name":"snare.wav"},"trackId":"t1","start":1920,"length":960,"offset":0,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:7","start":"chad:run1:7","length":"chad:run1:7","offset":"chad:run1:7","gain":"chad:run1:7","fadeIn":"chad:run1:7","fadeOut":"chad:run1:7"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}}}},
+      {"opId":"chad:run1:8","inverse":{"type":"clip.remove","clipId":"k3","ifClip":{"id":"k3","sample":{"fileHash":"0000000000000000000000000000000000000000000000000000000000000003","audioHash":"0000000000000000000000000000000000000000000000000000000000000021","name":"sub.aif"},"trackId":"t2","start":0,"length":3840,"offset":0,"gain":0,"fadeIn":0,"fadeOut":0,"createdBy":"chad","rev":{"trackId":"chad:run1:8","start":"chad:run1:8","length":"chad:run1:8","offset":"chad:run1:8","gain":"chad:run1:8","fadeIn":"chad:run1:8","fadeOut":"chad:run1:8"},"by":{"trackId":"chad","start":"chad","length":"chad","offset":"chad","gain":"chad","fadeIn":"chad","fadeOut":"chad"}}}},
+      {"opId":"chad:run1:9","inverse":{"type":"clip.patch","clipId":"k3","set":{"start":0,"length":3840,"offset":0},"expect":{"start":"chad:run1:9","length":"chad:run1:9","offset":"chad:run1:9"},"restore":{"start":"chad:run1:8","length":"chad:run1:8","offset":"chad:run1:8"},"restoreBy":{"start":"chad","length":"chad","offset":"chad"}}}
+    ],
+    "redo": [
+      {"opId":"chad:run1:11","inverse":{"type":"clip.patch","clipId":"k2","set":{"gain":-4.5},"expect":{"gain":"chad:run1:7"},"restore":{"gain":"chad:run1:10"},"restoreBy":{"gain":"chad"}}}
+    ]
+  }
+}
