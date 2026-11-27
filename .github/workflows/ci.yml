@@ -548,13 +548,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The Mac we test on stops at macOS 13.7, so its compiler is Apple clang 15, which
-  # lacks C++20 parenthesised aggregate initialisation. cmake/TracktionPatches.cmake
-  # works around Tracktion Engine's two uses of it. GitHub's Mac runners all have a
-  # newer Xcode (macOS 14 runners, the last with Xcode 15, were retired on 2026-11-02),
-  # so they never exercise the patches. Open-source clang 15 lacks the same feature
-  # (it arrived in clang 16), so building with it fails if a patch stops working or
-  # Tracktion starts using the feature somewhere new. It is a stand-in: Apple clang
-  # differs in other ways, so the Intel MacBook stays the real test.
+  # lacks some C++20 features, such as parenthesised aggregate initialisation.
+  # Tracktion Engine fixed its last uses of that for us (Tracktion/tracktion_engine#505).
+  # GitHub's Mac runners all have a newer Xcode (macOS 14 runners, the last with
+  # Xcode 15, were retired on 2026-11-02), so they would not notice a new use.
+  # Open-source clang 15 lacks the same ones (parenthesised aggregate initialisation
+  # arrived in clang 16), so this job fails if a Tracktion Engine or JUCE update starts
+  # using one. It is a stand-in: Apple clang differs in other ways, so the Intel
+  # MacBook stays the real test.
   app-clang-15:
     name: App with clang 15 (stand-in for Apple clang 15)
     needs: changes

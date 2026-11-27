@@ -8,9 +8,8 @@
 #
 # To build against a local checkout instead (to debug or patch a dependency),
 # configure with -DFETCHCONTENT_SOURCE_DIR_JUCE=/path/to/JUCE or
-# -DFETCHCONTENT_SOURCE_DIR_TRACKTION=/path/to/tracktion_engine. A local checkout is
-# never patched. After the first configure, -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-# configures again without the network.
+# -DFETCHCONTENT_SOURCE_DIR_TRACKTION=/path/to/tracktion_engine. After the first
+# configure, -DFETCHCONTENT_FULLY_DISCONNECTED=ON configures again without the network.
 
 include_guard(GLOBAL)
 
@@ -22,7 +21,7 @@ include_guard(GLOBAL)
 # Moving a pin is a deliberate change with CI on Windows and macOS (ADR-0009).
 # ---------------------------------------------------------------------------
 
-set(COLLABGOD_TRACKTION_COMMIT a5e44996f5f08dfa6af5f5d02d900fb3cfa37422) # 3.5.0 on develop, 2026-10-24
+set(COLLABGOD_TRACKTION_COMMIT 294e75e6af99dc6c0468018da5b1c0d767cf6a7b) # develop, 2026-11-26: the Apple clang 15 fix (Tracktion #505)
 set(COLLABGOD_JUCE_COMMIT      7ff644f65d7daa1428c34b9738ebb5c449dc9172) # JUCE 9.0.5 + develop, 2026-10-16
 
 include(FetchContent)
@@ -56,8 +55,6 @@ collabgod_declare_pinned(tracktion
     SOURCE_SUBDIR do-not-configure)
 
 FetchContent_MakeAvailable(juce tracktion)
-
-include(${_collabgod_cmake_dir}/TracktionPatches.cmake)
 
 add_subdirectory(${tracktion_SOURCE_DIR}/modules ${CMAKE_BINARY_DIR}/tracktion_modules)
 
