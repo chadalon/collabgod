@@ -96,14 +96,19 @@ describe('choosing a driver type', () => {
   const onMachine: AudioDevices = { types: machine, status: openNow };
   const current = currentChoice(openNow);
 
-  /** A fake app: opens what it is asked for unless it is in `broken`, in which case it keeps what was open. */
-  const app = (broken: string[] = []) => {
+  /**
+   * A fake app: refuses a device in `broken` and keeps what was open; takes a device in `busy`
+   * but falls back to another, as when another program holds it; opens the rest.
+   */
+  const app = (broken: string[] = [], busy: string[] = []) => {
     const asked: AudioChoice[] = [];
     let open = openNow;
     const choose = async (c: AudioChoice): Promise<AudioStatus> => {
       asked.push(c);
       if (broken.includes(c.device)) return { ...open, message: `Cannot open ${c.device}` };
-      open = status({ state: 'open', type: c.type, device: c.device, message: '' });
+      open = busy.includes(c.device)
+        ? status({ state: 'fallback', type: c.type, device: 'Realtek Digital Output', chosen: c, message: `${c.device} is in use` })
+        : status({ state: 'open', type: c.type, device: c.device, chosen: c, message: '' });
       return open;
     };
     return { asked, choose };
@@ -134,6 +139,13 @@ describe('choosing a driver type', () => {
     const s = await chooseType(onMachine, current, 'Windows Audio (Exclusive Mode)', choose);
     expect(s).toMatchObject({ type: 'Windows Audio (Exclusive Mode)', device: focusrite });
     expect(asked).toHaveLength(1);
+  });
+
+  it('keeps a device the app took but could not keep open, rather than picking another', async () => {
+    const { asked, choose } = app([], [focusrite]);
+    const s = await chooseType(onMachine, current, 'Windows Audio (Exclusive Mode)', choose);
+    expect(asked).toHaveLength(1);
+    expect(s).toMatchObject({ state: 'fallback', chosen: { type: 'Windows Audio (Exclusive Mode)', device: focusrite } });
   });
 
   it('when nothing opens, ends with the refusal and what was open before', async () => {

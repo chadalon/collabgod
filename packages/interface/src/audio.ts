@@ -121,9 +121,12 @@ export function typeCandidates(devices: AudioDevices, current: AudioChoice, type
 }
 
 /**
- * Picks a driver type: tries its devices in turn until one opens on that type. Returns the
- * status of the one that opened, or of the last refusal, in which case the app has kept what
- * was open before.
+ * Picks a driver type: tries its devices in turn until the app takes one. The app refuses a
+ * device that will not open, keeping what was open before; that is when the next is tried.
+ * A device it takes is remembered, even if it then falls back because the device stopped
+ * (in use by another program, say): that is the person's choice now, and trying the next
+ * device would replace it with one they did not pick. Returns the status of the device taken,
+ * or of the last refusal.
  */
 export async function chooseType(
   devices: AudioDevices,
@@ -134,8 +137,8 @@ export async function chooseType(
   let status = devices.status;
   for (const candidate of typeCandidates(devices, current, type)) {
     status = await choose(candidate);
-    const opened = status.state === 'open' && status.type === type;
-    if (opened && (candidate.device === '' || status.device === candidate.device)) return status;
+    const taken = status.chosen.type === type && status.chosen.device === candidate.device;
+    if (taken) return status;
   }
   return status;
 }
