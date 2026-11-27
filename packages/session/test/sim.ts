@@ -16,7 +16,7 @@ import {
   trackPositionAt,
   type UndoResult,
 } from '../src';
-import { hash, SEED } from './helpers';
+import { hash, PROJECT, SEED, verifier } from './helpers';
 
 /**
  * An in-memory lobby: a sequencer standing in for the relay, any number of
@@ -45,7 +45,9 @@ export class Sim {
     this.inverses = Array.from({ length: count }, () => []);
     this.rejected = Array.from({ length: count }, () => 0);
     this.received = Array.from({ length: count }, () => []);
-    this.clients = this.up.map((_queue, i) => new Replica({ author: `m${i}`, nextOpId: opIdSource(`m${i}:`) }));
+    this.clients = this.up.map(
+      (_queue, i) => new Replica({ author: `m${i}`, nextOpId: opIdSource(`m${i}:`), session: Session.empty(PROJECT) }),
+    );
     // Everyone is a member, then the shared starting material, all authored by the first member.
     const setup: Change[] = this.clients.map((client, i) => ({
       type: 'member.add',
@@ -53,6 +55,7 @@ export class Sim {
         id: client.author,
         name: `Member ${i}`,
         colour: `#${(0x123456 * (i + 1)).toString(16).slice(-6).padStart(6, '0')}`,
+        verifier: verifier(i),
       },
     }));
     setup.push(...seed);
@@ -278,7 +281,12 @@ export function randomChange(
     case 'member.add':
       return {
         type: 'member.add',
-        member: { id: freshId(), name: `Guest ${c % 10}`, colour: `#00${(d % 256).toString(16).padStart(2, '0')}ff` },
+        member: {
+          id: freshId(),
+          name: `Guest ${c % 10}`,
+          colour: `#00${(d % 256).toString(16).padStart(2, '0')}ff`,
+          verifier: verifier(e % 5),
+        },
       };
     case 'member.rename':
       return memberId === undefined ? undefined : { type: 'member.rename', memberId, name: `Name ${c % 10}` };

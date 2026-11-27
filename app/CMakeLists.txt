@@ -40,6 +40,10 @@ target_sources(collabgod PRIVATE
     src/Log.cpp
     src/Log.h
     src/Main.cpp
+    src/ProjectFile.cpp
+    src/ProjectFile.h
+    src/ProjectFileTests.cpp
+    src/ProjectFileTests.h
     src/SmokeTest.cpp
     src/SmokeTest.h
     src/UiFiles.cpp
@@ -157,6 +161,11 @@ set_tests_properties(app_smoke_test PROPERTIES TIMEOUT 120)
 # generated codec and dispatch, and the real BridgeHost. No window.
 add_test(NAME app_bridge_contract COMMAND collabgod --bridge-test)
 set_tests_properties(app_bridge_contract PROPERTIES TIMEOUT 60)
+
+# Atomic saves (#25): writing, replacing, failing without touching the old file, and a
+# second copy of the app killed again and again while it saves. No window.
+add_test(NAME app_project_file COMMAND collabgod --project-file-test)
+set_tests_properties(app_project_file PROPERTIES TIMEOUT 300)
 
 # The whole bridge through the real web view: opens the window, the page calls every
 # function, receives every event and sends every command, then the window is closed

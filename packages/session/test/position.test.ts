@@ -3,7 +3,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { isPosition, positionBetween, Session, trackPositionAt } from '../src';
-import { must, runs } from './helpers';
+import { must, PROJECT, runs } from './helpers';
 
 const key = fc
   .array(fc.constantFrom(...'0123456789abcdefghijklmnopqrstuvwxyz'), { minLength: 1, maxLength: 8 })
@@ -70,7 +70,7 @@ describe('trackPositionAt', () => {
         fc.array(fc.nat(20), { minLength: 1, maxLength: 30 }),
         fc.array(fc.nat(30), { maxLength: 30 }),
         (adds, moves) => {
-          const session = Session.empty();
+          const session = Session.empty(PROJECT);
           adds.forEach((index, n) => {
             const id = `t${n}`;
             must(session, { type: 'track.add', track: { id, name: id, position: trackPositionAt(session, index) } });
@@ -90,7 +90,7 @@ describe('trackPositionAt', () => {
   });
 
   it('places a track after two that share a key, since there is no key between them', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     must(session, { type: 'track.add', track: { id: 'a', name: 'A', position: 'i' } });
     must(session, { type: 'track.add', track: { id: 'b', name: 'B', position: 'i' } });
     must(session, { type: 'track.add', track: { id: 'c', name: 'C', position: trackPositionAt(session, 1) } });

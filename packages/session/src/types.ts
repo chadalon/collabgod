@@ -7,6 +7,11 @@
  * that last wrote it. Revisions are what make an inverse safe to apply later:
  * an inverse only writes a field while that field still holds the revision the
  * original operation left (ADR-0004, `spikes/session-model` finding 2).
+ *
+ * Beside each revision is the member whose operation it was, and every track,
+ * clip and member records who added it. That is who made what (SYN-9), and it
+ * is part of the state like any value, so inverses restore it exactly
+ * (ADR-0017).
  */
 
 /** Identifies one operation. Opaque, and unique across the whole session. */
@@ -14,6 +19,14 @@ export type OpId = string;
 
 /** A member's id. Opaque, made by the app, never by the relay (ADR-0006). */
 export type MemberId = string;
+
+/**
+ * Which project a session is. Opaque, made at random by the app when the project
+ * is created (at least 128 random bits), and fixed for the life of the session:
+ * no operation changes it. A joiner gets it with the session, so every member's
+ * copy has the same one (ADR-0017).
+ */
+export type ProjectId = string;
 
 export type TrackId = string;
 export type ClipId = string;
@@ -23,6 +36,16 @@ export const NO_REVISION: OpId = '';
 
 /** For each field in `F`, the operation that last wrote it. */
 export type Revisions<F extends string> = { readonly [K in F]: OpId };
+
+/** The author of a field no operation has written yet. */
+export const NO_AUTHOR: MemberId = '';
+
+/**
+ * For each field in `F`, the member whose operation last wrote it (SYN-9). Kept
+ * beside the revisions, and restored with them by every inverse, so who made
+ * what survives undo, rollback and a snapshot, with no log to look it up in.
+ */
+export type Authors<F extends string> = { readonly [K in F]: MemberId };
 
 // ---------------------------------------------------------------------------
 // The session
@@ -44,6 +67,22 @@ export type TimelineField = keyof TimelineValues;
 
 export interface Timeline extends TimelineValues {
   readonly rev: Revisions<TimelineField>;
+  readonly by: Authors<TimelineField>;
+}
+
+/**
+ * What checks a member's secret, never the secret itself (ADR-0006). The install
+ * keeps the secret; every copy of the project keeps this, so whoever hosts can
+ * check a returning member.
+ *
+ * One scheme so far, `sha256`: `value` is the SHA-256 of the secret, 64 lowercase
+ * hex digits. The secret must be at least 128 random bits, which is what makes an
+ * unsalted hash safe to share. How a member proves the secret is #36's; it may add
+ * a scheme (a public key, say), which is a new format version.
+ */
+export interface MemberVerifier {
+  readonly scheme: 'sha256';
+  readonly value: string;
 }
 
 /** A person in the project (ADR-0006). Members are marked as removed, never deleted. */
@@ -52,6 +91,8 @@ export interface NewMember {
   readonly name: string;
   /** `#rrggbb`, lowercase. */
   readonly colour: string;
+  /** Fixed for the life of the member. */
+  readonly verifier: MemberVerifier;
 }
 
 export interface MemberValues {
@@ -62,9 +103,16 @@ export interface MemberValues {
 
 export type MemberField = keyof MemberValues;
 
-export interface Member extends MemberValues {
+/** Who added an object: fixed for its life, and put back with it by every inverse. */
+export interface Created {
+  readonly createdBy: MemberId;
+}
+
+export interface Member extends MemberValues, Created {
   readonly id: MemberId;
+  readonly verifier: MemberVerifier;
   readonly rev: Revisions<MemberField>;
+  readonly by: Authors<MemberField>;
 }
 
 export interface TrackValues {
@@ -83,8 +131,9 @@ export interface NewTrack extends TrackValues {
   readonly id: TrackId;
 }
 
-export interface Track extends NewTrack {
+export interface Track extends NewTrack, Created {
   readonly rev: Revisions<TrackField>;
+  readonly by: Authors<TrackField>;
 }
 
 /**
@@ -126,8 +175,9 @@ export interface NewClip extends ClipValues {
   readonly sample: SampleRef;
 }
 
-export interface Clip extends NewClip {
+export interface Clip extends NewClip, Created {
   readonly rev: Revisions<ClipField>;
+  readonly by: Authors<ClipField>;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,12 +189,20 @@ export interface Clip extends NewClip {
  *
  * It applies only while every field in `set` was last written by the operation
  * named in `expect`, and when it applies each field gets back the revision in
- * `restore`. Both must name exactly the fields in `set`.
+ * `restore` and the author in `restoreBy`. All three must name exactly the
+ * fields in `set`.
  */
 export interface FieldPatch<V> {
   readonly set: Partial<V>;
   readonly expect: Partial<{ readonly [K in keyof V]: OpId }>;
   readonly restore: Partial<{ readonly [K in keyof V]: OpId }>;
+  readonly restoreBy: Partial<{ readonly [K in keyof V]: MemberId }>;
+}
+
+/** What an inverse that puts an object back gives it, besides its values: exactly what it had. */
+export interface Restore<F extends string> extends Created {
+  readonly rev: Revisions<F>;
+  readonly by: Authors<F>;
 }
 
 /**
@@ -163,6 +221,8 @@ export interface SplitParts {
   readonly expect: Revisions<'length' | 'fadeOut'>;
   /** The revisions they get back. */
   readonly restore: Revisions<'length' | 'fadeOut'>;
+  /** The authors they get back. */
+  readonly restoreBy: Authors<'length' | 'fadeOut'>;
 }
 
 /**
@@ -170,7 +230,7 @@ export interface SplitParts {
  *
  * Direct edits (add, remove, rename, move, trim, gain, fade and so on) are what
  * a person does, and they are unconditional: of two edits to the same field, the
- * later one in the shared order wins. The forms with `restore`, `rev`,
+ * later one in the shared order wins. The forms with `restore`,
  * `ifUnchanged` or `ifClip`, and the `*.patch`, `clip.unsplit`, `clip.resplit`
  * and `member.unadd` types, are inverses. They are guarded by revisions, so an
  * inverse applied late never overwrites something another person changed in the
@@ -186,7 +246,7 @@ export type Change =
       readonly type: 'member.add';
       readonly member: NewMember;
       /** Present when this puts back a member that `member.unadd` took out. */
-      readonly restore?: { readonly removed: boolean; readonly rev: Revisions<MemberField> };
+      readonly restore?: { readonly removed: boolean } & Restore<MemberField>;
     }
   | { readonly type: 'member.rename'; readonly memberId: MemberId; readonly name: string }
   | { readonly type: 'member.recolour'; readonly memberId: MemberId; readonly colour: string }
@@ -203,8 +263,8 @@ export type Change =
   | {
       readonly type: 'track.add';
       readonly track: NewTrack;
-      /** Present when this puts back a removed track: its revisions and the clips it held. */
-      readonly restore?: { readonly rev: Revisions<TrackField>; readonly clips: readonly Clip[] };
+      /** Present when this puts back a removed track: its revisions, authors and the clips it held. */
+      readonly restore?: { readonly clips: readonly Clip[] } & Restore<TrackField>;
     }
   | {
       readonly type: 'track.remove';
@@ -221,7 +281,7 @@ export type Change =
       readonly type: 'clip.add';
       readonly clip: NewClip;
       /** Present when this puts back a removed clip. */
-      readonly rev?: Revisions<ClipField>;
+      readonly restore?: Restore<ClipField>;
     }
   | {
       readonly type: 'clip.remove';

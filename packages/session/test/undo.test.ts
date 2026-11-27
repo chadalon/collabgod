@@ -13,7 +13,7 @@ import {
   type SubmitResult,
   type UndoResult,
 } from '../src';
-import { trimTo } from './helpers';
+import { PROJECT, trimTo, verifier } from './helpers';
 import { Sim } from './sim';
 
 const A = 0;
@@ -37,7 +37,7 @@ function expectSame(sim: Sim): void {
 
 /** One person alone: every operation goes through a local sequence at once. */
 function alone() {
-  const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:') });
+  const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:'), session: Session.empty(PROJECT) });
   const order = new Sequencer();
   const confirm = (send: readonly Operation[]) => {
     for (const operation of send) me.receive(order.next(operation));
@@ -111,7 +111,7 @@ describe('undo and redo working solo', () => {
 
   it('does not offer to undo adding a member, which is never deleted', () => {
     const { me, edit: make, undo } = alone();
-    make({ type: 'member.add', member: { id: 'chad', name: 'Chad', colour: '#ff8800' } });
+    make({ type: 'member.add', member: { id: 'chad', name: 'Chad', colour: '#ff8800', verifier: verifier(1) } });
     expect(me.canUndo).toBe(false);
     expect(undo().applied).toBe(false);
     expect(me.view.members.has('chad')).toBe(true);
@@ -553,6 +553,19 @@ describe('undo history belongs to the member, not the connection', () => {
     expect(view.clips.get('k2')?.gain).toBe(2);
   });
 
+  it('puts back who made an older edit, on a replica built after that edit was overwritten', () => {
+    const sim = new Sim(2);
+    edit(sim, B, { type: 'clip.gain', clipId: 'k1', gain: -3 });
+    sim.drain();
+    edit(sim, A, { type: 'clip.gain', clipId: 'k1', gain: 6 });
+    sim.drain();
+    // B starts again from a snapshot that no longer names its own edit anywhere.
+    sim.restart(B, 'run2');
+    applied(sim.undo(A));
+    expectSame(sim);
+    expect(sim.client(B).view.clips.get('k1')).toMatchObject({ gain: -3, by: { gain: 'm1' }, createdBy: 'm0' });
+  });
+
   it('is empty on a new replica not given it', () => {
     const sim = new Sim(2);
     edit(sim, A, { type: 'clip.move', clipId: 'k1', trackId: 't1', start: 480 });
@@ -574,7 +587,8 @@ describe('undo history belongs to the member, not the connection', () => {
     edit(sim, A, { type: 'tempo.set', tempo: 100 });
     sim.drain();
     const history = sim.client(A).history;
-    expect(() => new Replica({ author: 'm1', nextOpId: opIdSource('m1:x:'), history })).toThrow(/m0's, not m1's/);
+    const session = Session.empty(PROJECT);
+    expect(() => new Replica({ author: 'm1', nextOpId: opIdSource('m1:x:'), session, history })).toThrow(/m0's, not m1's/);
   });
 
   it('works the same with three members', () => {
