@@ -34,7 +34,7 @@ export const PROJECT_EXTENSION = '.collabgod';
 export interface Project {
   /** How many operations of the shared order `session` includes; the next one is `seq + 1`. */
   readonly seq: number;
-  /** The confirmed state: every track, clip and member, with who made what (SYN-9). */
+  /** The confirmed state: which project it is, and every track, clip and member, with who made what (SYN-9). */
   readonly session: SessionSnapshot;
   /**
    * The undo and redo history of the member who saved it, so undo still works
@@ -140,6 +140,7 @@ export function saveProject(project: Project): string {
   const lines = [
     `  "format": ${JSON.stringify(PROJECT_FORMAT)}`,
     `  "version": ${PROJECT_VERSION}`,
+    `  "projectId": ${JSON.stringify(session.projectId)}`,
     `  "seq": ${project.seq}`,
     `  "timeline": ${JSON.stringify(timelineOf(session.timeline))}`,
     `  "members": ${list(session.members.map(memberOf), '  ')}`,

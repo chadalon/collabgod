@@ -16,7 +16,7 @@ import {
   trackPositionAt,
   type UndoResult,
 } from '../src';
-import { hash, SEED, verifier } from './helpers';
+import { hash, PROJECT, SEED, verifier } from './helpers';
 
 /**
  * An in-memory lobby: a sequencer standing in for the relay, any number of
@@ -45,7 +45,9 @@ export class Sim {
     this.inverses = Array.from({ length: count }, () => []);
     this.rejected = Array.from({ length: count }, () => 0);
     this.received = Array.from({ length: count }, () => []);
-    this.clients = this.up.map((_queue, i) => new Replica({ author: `m${i}`, nextOpId: opIdSource(`m${i}:`) }));
+    this.clients = this.up.map(
+      (_queue, i) => new Replica({ author: `m${i}`, nextOpId: opIdSource(`m${i}:`), session: Session.empty(PROJECT) }),
+    );
     // Everyone is a member, then the shared starting material, all authored by the first member.
     const setup: Change[] = this.clients.map((client, i) => ({
       type: 'member.add',

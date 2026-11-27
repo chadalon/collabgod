@@ -2,18 +2,28 @@
 
 import { canonical, Session } from '@collabgod/session';
 import { describe, expect, it } from 'vitest';
-import { loadProject, PROJECT_FORMAT, PROJECT_VERSION, type Project, replicaFor, saveProject } from '../src';
-import { hash, loaded, smallProject, solo, stateOf } from './helpers';
+import {
+  asNewProject,
+  loadProject,
+  PROJECT_FORMAT,
+  PROJECT_VERSION,
+  type Project,
+  projectOf,
+  replicaFor,
+  saveProject,
+} from '../src';
+import { hash, loaded, SMALL, smallProject, solo, stateOf } from './helpers';
 
-const empty: Project = { seq: 0, session: Session.empty().snapshot() };
+const empty: Project = { seq: 0, session: Session.empty('p-empty').snapshot() };
 
 describe('saving', () => {
-  it('writes the format and its version first, so any version of the app can tell what it is holding', () => {
+  it('writes the format and its version first, so any app can tell what it is holding, then the project id', () => {
     const text = saveProject(empty);
-    expect(text.split('\n').slice(0, 4)).toEqual([
+    expect(text.split('\n').slice(0, 5)).toEqual([
       '{',
       `  "format": "${PROJECT_FORMAT}",`,
       `  "version": ${PROJECT_VERSION},`,
+      '  "projectId": "p-empty",',
       '  "seq": 0,',
     ]);
     expect(text.endsWith('}\n')).toBe(true);
@@ -88,6 +98,33 @@ describe('saving', () => {
   it('refuses a seq that is not a whole number', () => {
     expect(() => saveProject({ ...empty, seq: -1 })).toThrow();
     expect(() => saveProject({ ...empty, seq: 1.5 })).toThrow();
+  });
+});
+
+describe('the project id', () => {
+  it('comes back on load, and a replica opened on the file has it', () => {
+    const project = loaded(loadProject(saveProject(smallProject())));
+    expect(project.session.projectId).toBe(SMALL);
+    expect(replicaFor(project, { author: 'sam', nextOpId: () => 'sam:1' }).view.projectId).toBe(SMALL);
+  });
+
+  it('is the same in every member’s copy, so a member who joined and then saved writes the same one', () => {
+    const { me } = solo('chad');
+    // A joiner starts from the host's snapshot, as Phase 2 will send it.
+    const received = { seq: me.seq, session: me.confirmedSnapshot() };
+    const joiner = replicaFor(received, { author: 'sam', nextOpId: () => 'sam:1' });
+    expect(JSON.parse(saveProject(projectOf(joiner))).projectId).toBe(SMALL);
+  });
+
+  it('is new when a project is saved as a new one, and nothing else changes', () => {
+    const project = smallProject();
+    const copy = asNewProject(project, 'p-fedcba9876543210fedcba9876543210');
+    expect(copy.session.projectId).toBe('p-fedcba9876543210fedcba9876543210');
+    expect(project.session.projectId).toBe(SMALL);
+    const without = (text: string) => text.replace(/"projectId": "[^"]*"/, '');
+    expect(without(saveProject(copy))).toBe(without(saveProject(project)));
+    expect(() => asNewProject(project, SMALL)).toThrow();
+    expect(() => asNewProject(project, '')).toThrow();
   });
 });
 

@@ -62,7 +62,7 @@ describe('loading', () => {
     refused(extra((data) => data['tracks'][0], 'colour'), 'damaged', /track 0/);
     refused(extra((data) => data['clips'][0], 'muted'), 'damaged', /clip 0/);
     refused(extra((data) => data['clips'][0].rev, 'muted'), 'damaged', /clip 0 rev/);
-    for (const key of ['seq', 'timeline', 'members', 'tracks', 'clips']) {
+    for (const key of ['projectId', 'seq', 'timeline', 'members', 'tracks', 'clips']) {
       refused(
         edited((data) => {
           delete data[key];
@@ -93,6 +93,8 @@ describe('loading', () => {
     refused(with_((data) => (data['members'][0].createdBy = '')), 'damaged', /member/);
     refused(with_((data) => (data['tracks'][0].by = { name: 'chad' })), 'damaged', /track 0 by/);
     refused(with_((data) => (data['seq'] = -1)), 'damaged', /seq/);
+    refused(with_((data) => (data['projectId'] = '')), 'damaged', /project id/);
+    refused(with_((data) => (data['projectId'] = 7)), 'damaged', /project id/);
     refused(with_((data) => (data['history'].member = '')), 'damaged', /history/);
     refused(with_((data) => (data['history'].undo[0].inverse = 'undo')), 'damaged', /history/);
   });

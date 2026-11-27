@@ -59,8 +59,11 @@ export interface ReplicaOptions {
    * from a new one. See `opIdSource`.
    */
   readonly nextOpId: () => OpId;
-  /** The confirmed state to start from. Default: an empty session. The replica takes it over. */
-  readonly session?: Session;
+  /**
+   * The confirmed state to start from: `Session.empty(projectId)` for a new project, or a
+   * saved or received one. It says which project this is. The replica takes it over.
+   */
+  readonly session: Session;
   /** The sequence number of the last operation `session` includes. Default 0. */
   readonly seq?: number;
   /** The member's undo and redo history, from an earlier replica's `history`. Default: none. */
@@ -167,7 +170,7 @@ export class Replica {
   constructor(options: ReplicaOptions) {
     this.author = options.author;
     this.nextOpId = options.nextOpId;
-    this.state = options.session ?? Session.empty();
+    this.state = options.session;
     this.confirmedSeq = options.seq ?? 0;
     const { history } = options;
     if (history !== undefined) {

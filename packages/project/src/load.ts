@@ -111,6 +111,7 @@ function sessionOf(file: Plain): SessionSnapshot {
   });
 
   const snapshot = {
+    projectId: file['projectId'],
     timeline: file['timeline'],
     members: file['members'],
     tracks: file['tracks'],
@@ -146,7 +147,8 @@ function historyOf(value: unknown): UndoHistory {
 
 /** Check a document of the current version and turn it into a project. */
 function projectOf(file: Plain): Project {
-  keys(file, 'the file', ['format', 'version', 'seq', 'timeline', 'members', 'tracks', 'clips'], ['history']);
+  const fields = ['format', 'version', 'projectId', 'seq', 'timeline', 'members', 'tracks', 'clips'];
+  keys(file, 'the file', fields, ['history']);
   const seq = file['seq'];
   if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) damaged('seq is not a whole number');
   const session = sessionOf(file);

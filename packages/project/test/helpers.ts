@@ -9,8 +9,11 @@ export { runs } from '../../session/test/helpers';
 export const hash = (n: number): string => n.toString(16).padStart(64, '0');
 
 /** One person working alone, as the app does before any lobby: every edit is ordered at once. */
-export function solo(author = 'chad', run = 'run1') {
-  const me = new Replica({ author, nextOpId: opIdSource(`${author}:${run}:`) });
+/** The project the small example belongs to. */
+export const SMALL = 'p-0123456789abcdef0123456789abcdef';
+
+export function solo(author = 'chad', run = 'run1', projectId = SMALL) {
+  const me = new Replica({ author, nextOpId: opIdSource(`${author}:${run}:`), session: Session.empty(projectId) });
   const order = new Sequencer();
   const send = (operations: readonly Operation[]): void => {
     for (const operation of operations) send(me.receive(order.next(operation)).send);

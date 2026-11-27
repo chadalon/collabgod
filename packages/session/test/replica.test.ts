@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { canonical, type Change, opIdSource, Replica, Sequencer, Session, trackPositionAt } from '../src';
-import { newClip, trimTo } from './helpers';
+import { newClip, PROJECT, trimTo } from './helpers';
 import { Sim } from './sim';
 
 const applied = (result: ReturnType<Replica['submit']>) => {
@@ -12,7 +12,7 @@ const applied = (result: ReturnType<Replica['submit']>) => {
 
 describe('a replica working solo', () => {
   it('applies an edit at once and confirms it through a local sequence', () => {
-    const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:') });
+    const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:'), session: Session.empty(PROJECT) });
     const order = new Sequencer();
     const sent = applied(me.submit({ type: 'tempo.set', tempo: 128 }));
 
@@ -31,7 +31,7 @@ describe('a replica working solo', () => {
   });
 
   it('sends nothing for an edit that does not apply, and says why', () => {
-    const me = new Replica({ author: 'chad', nextOpId: opIdSource('c:') });
+    const me = new Replica({ author: 'chad', nextOpId: opIdSource('c:'), session: Session.empty(PROJECT) });
     expect(me.submit({ type: 'track.rename', trackId: 'nope', name: 'x' })).toEqual({
       applied: false,
       reason: 'target-missing',
@@ -40,7 +40,7 @@ describe('a replica working solo', () => {
   });
 
   it('starts from a saved state and sequence number', () => {
-    const saved = Session.empty();
+    const saved = Session.empty(PROJECT);
     saved.apply({ id: 'old:1', author: 'chad', change: { type: 'tempo.set', tempo: 90 } });
     const me = new Replica({ author: 'chad', nextOpId: opIdSource('c:'), session: saved, seq: 41 });
     expect(me.seq).toBe(41);
@@ -189,7 +189,7 @@ describe('a replica in a lobby', () => {
   });
 
   it('treats a malformed entry in the log as an entry that changes nothing', () => {
-    const me = new Replica({ author: 'm', nextOpId: opIdSource('m:') });
+    const me = new Replica({ author: 'm', nextOpId: opIdSource('m:'), session: Session.empty(PROJECT) });
     applied(me.submit({ type: 'tempo.set', tempo: 100 }));
     for (const junk of [null, { id: 'x' }, { id: 'y', author: 'z', change: { type: 'nope' } }]) {
       expect(me.receive({ seq: me.seq + 1, operation: junk as never })).toEqual({ kind: 'remote', applied: false, send: [] });
@@ -200,7 +200,7 @@ describe('a replica in a lobby', () => {
   });
 
   it('refuses its own operations out of the order it sent them', () => {
-    const me = new Replica({ author: 'm', nextOpId: opIdSource('m:') });
+    const me = new Replica({ author: 'm', nextOpId: opIdSource('m:'), session: Session.empty(PROJECT) });
     const first = applied(me.submit({ type: 'tempo.set', tempo: 100 }));
     const second = applied(me.submit({ type: 'tempo.set', tempo: 110 }));
     expect(first.operation.id).not.toBe(second.operation.id);
@@ -210,7 +210,7 @@ describe('a replica in a lobby', () => {
 
 describe('a replica whose rollback fails', () => {
   it('marks itself broken and refuses to go on, so a half rolled-back view is never used', () => {
-    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:') });
+    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:'), session: Session.empty(PROJECT) });
     applied(me.submit({ type: 'tempo.set', tempo: 100 }));
     applied(me.submit({ type: 'tempo.set', tempo: 110 }));
     // Make the first inverse refuse, as an inexact one would. Only a bug in this package could do that.
@@ -226,7 +226,7 @@ describe('a replica whose rollback fails', () => {
   });
 
   it('is not broken by a gap in the order, which changes nothing', () => {
-    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:') });
+    const me = new Replica({ author: 'me', nextOpId: opIdSource('me:'), session: Session.empty(PROJECT) });
     expect(() =>
       me.receive({ seq: 2, operation: { id: 'x', author: 'them', change: { type: 'tempo.set', tempo: 90 } } }),
     ).toThrow(/expected seq 1/);
@@ -238,7 +238,7 @@ describe('a replica whose rollback fails', () => {
 describe('the cost of receiving', () => {
   /** A replica with `pending` unconfirmed edits, counting every apply on its state. */
   function setUp(pending: number) {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     session.apply({
       id: 's:t',
       author: 's',

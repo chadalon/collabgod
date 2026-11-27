@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { type MemberId, type OpId, Replica, Session } from '@collabgod/session';
+import { type MemberId, type OpId, type ProjectId, Replica, Session } from '@collabgod/session';
 import type { Project } from './format';
 
 export { PROJECT_EXTENSION, PROJECT_FORMAT, PROJECT_VERSION, type Project, saveProject } from './format';
@@ -23,6 +23,21 @@ export { MIGRATIONS, type Migration } from './migrate';
  */
 export function projectOf(replica: Replica): Project {
   return { seq: replica.seq, session: replica.confirmedSnapshot(), history: replica.history };
+}
+
+/**
+ * The same project saved as a new one: everything kept, with a new project id
+ * the app made at random. This is "save as a new project"; a plain Save As is a
+ * copy of the same project and keeps its id. The members, their ids and their
+ * verifiers are kept too, so the two projects share member secrets (noted on #36).
+ *
+ * @throws Error if `projectId` is not an id, or is the project's own.
+ */
+export function asNewProject(project: Project, projectId: ProjectId): Project {
+  if (projectId === project.session.projectId) throw new Error('a new project needs a new id');
+  const session = Session.fromSnapshot({ ...project.session, projectId }).snapshot();
+  const { seq, history } = project;
+  return history === undefined ? { seq, session } : { seq, session, history };
 }
 
 /**

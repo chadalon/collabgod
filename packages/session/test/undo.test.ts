@@ -13,7 +13,7 @@ import {
   type SubmitResult,
   type UndoResult,
 } from '../src';
-import { trimTo, verifier } from './helpers';
+import { PROJECT, trimTo, verifier } from './helpers';
 import { Sim } from './sim';
 
 const A = 0;
@@ -37,7 +37,7 @@ function expectSame(sim: Sim): void {
 
 /** One person alone: every operation goes through a local sequence at once. */
 function alone() {
-  const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:') });
+  const me = new Replica({ author: 'chad', nextOpId: opIdSource('chad:run1:'), session: Session.empty(PROJECT) });
   const order = new Sequencer();
   const confirm = (send: readonly Operation[]) => {
     for (const operation of send) me.receive(order.next(operation));
@@ -587,7 +587,8 @@ describe('undo history belongs to the member, not the connection', () => {
     edit(sim, A, { type: 'tempo.set', tempo: 100 });
     sim.drain();
     const history = sim.client(A).history;
-    expect(() => new Replica({ author: 'm1', nextOpId: opIdSource('m1:x:'), history })).toThrow(/m0's, not m1's/);
+    const session = Session.empty(PROJECT);
+    expect(() => new Replica({ author: 'm1', nextOpId: opIdSource('m1:x:'), session, history })).toThrow(/m0's, not m1's/);
   });
 
   it('works the same with three members', () => {

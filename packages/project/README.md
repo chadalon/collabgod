@@ -17,7 +17,7 @@ FC_SCALE=40 npm test -w @collabgod/project   # the property tests with 40 times 
 ## Using it
 
 ```ts
-import { loadProject, projectOf, replicaFor, saveProject } from '@collabgod/project';
+import { asNewProject, loadProject, projectOf, replicaFor, saveProject } from '@collabgod/project';
 
 // Saving: the replica's confirmed state, how far into the shared order it is, and its member's undo history.
 const text = saveProject(projectOf(me));
@@ -28,6 +28,10 @@ const result = loadProject(text);
 if (!result.ok) return tellThePerson(result.error.kind); // not-a-project, newer-version, unsupported-version, damaged
 if (result.migratedFrom !== undefined) keepTheOriginal(path); // an older app cannot open the new version
 const me = replicaFor(result.project, { author: memberId, nextOpId: opIdSource(`${memberId}:${randomRunId}:`) });
+
+// A new project starts from Session.empty(randomProjectId). Save As writes the same project
+// elsewhere; "save as a new project" gives it a new id, and nothing else changes.
+const copy = asNewProject(projectOf(me), randomProjectId());
 ```
 
 Opening a project never looks for its samples, so a project whose samples are nowhere on this machine still opens. Finding them is the sample location table's job:
@@ -50,7 +54,7 @@ if (forgotten.length > 0) await app.writeDataFile('sample-locations.json', locat
 | `src/load.ts` | `loadProject`: recognise the file, migrate it, check every field |
 | `src/migrate.ts` | Migrations from older versions. Empty: version 1 is the first |
 | `src/locations.ts` | `SampleLocations`: content hash to the paths on this machine that hold it |
-| `src/index.ts` | `projectOf` and `replicaFor`, between a replica and a project |
+| `src/index.ts` | `projectOf` and `replicaFor`, between a replica and a project, and `asNewProject` |
 | `test/format.test.ts` | What a saved file holds, and reopening it |
 | `test/load.test.ts` | Every reason a file is refused, and migrations |
 | `test/roundtrip.property.test.ts` | Random lobby and solo sessions: saved, loaded and saved again, the state and the text are the same, and the reopened replica behaves exactly as the original |

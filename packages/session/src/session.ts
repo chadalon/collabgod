@@ -28,6 +28,7 @@ import {
   type Member,
   type MemberField,
   type MemberId,
+  type ProjectId,
   type MemberValues,
   type MemberVerifier,
   type NewClip,
@@ -98,6 +99,8 @@ const TRACK_CHECKS: Checks<TrackField> = { name: isTrackName, position: isPositi
 
 /** What the interface, the engine projection and the project file read. It cannot change the session. */
 export interface SessionView {
+  /** Which project this is. Set when the session is made; no operation changes it. */
+  readonly projectId: ProjectId;
   readonly timeline: Timeline;
   readonly members: ReadonlyMap<MemberId, Member>;
   readonly tracks: ReadonlyMap<TrackId, Track>;
@@ -116,6 +119,7 @@ export interface SessionView {
 
 /** The whole session as plain data, in a stable order. Revisions included. */
 export interface SessionSnapshot {
+  readonly projectId: ProjectId;
   readonly timeline: Timeline;
   /** By id. */
   readonly members: readonly Member[];
@@ -463,6 +467,7 @@ const no = (reason: RejectReason): ApplyResult => ({ applied: false, reason });
 // ---------------------------------------------------------------------------
 
 export class Session implements SessionView {
+  readonly projectId: ProjectId;
   private timelineValue: Timeline;
   private readonly memberMap = new Map<MemberId, Member>();
   private readonly trackMap = new Map<TrackId, Track>();
@@ -472,7 +477,8 @@ export class Session implements SessionView {
   /** Sorted track ids, or null when a track was added, removed or moved since. */
   private orderCache: readonly TrackId[] | null = Object.freeze([]);
 
-  private constructor() {
+  private constructor(projectId: ProjectId) {
+    this.projectId = projectId;
     this.timelineValue = makeTimeline(
       { tempo: DEFAULT_TEMPO, timeSignature: DEFAULT_TIME_SIGNATURE },
       revisions(TIMELINE_FIELDS, all(NO_REVISION)),
@@ -480,9 +486,14 @@ export class Session implements SessionView {
     );
   }
 
-  /** A new, empty session: 120 BPM in 4/4, no members, no tracks. */
-  static empty(): Session {
-    return new Session();
+  /**
+   * A new, empty session for project `projectId`: 120 BPM in 4/4, no members, no tracks.
+   *
+   * @throws Error if `projectId` is not an id.
+   */
+  static empty(projectId: ProjectId): Session {
+    if (!isId(projectId)) throw new Error('invalid project id');
+    return new Session(projectId);
   }
 
   /**
@@ -497,11 +508,12 @@ export class Session implements SessionView {
     };
     const data: unknown = snapshot;
     if (!isObject(data)) return fail('not an object');
-    const { timeline, members, tracks, clips } = data;
+    const { projectId, timeline, members, tracks, clips } = data;
+    if (!isId(projectId)) return fail('project id');
     if (!isTimeline(timeline)) return fail('timeline');
     if (!Array.isArray(members) || !Array.isArray(tracks) || !Array.isArray(clips)) return fail('missing lists');
 
-    const session = new Session();
+    const session = new Session(projectId);
     session.timelineValue = makeTimeline(timeline, timeline.rev, timeline.by);
     for (const member of members) {
       if (!isMember(member)) return fail('member');
@@ -559,6 +571,7 @@ export class Session implements SessionView {
 
   snapshot(): SessionSnapshot {
     return {
+      projectId: this.projectId,
       timeline: this.timelineValue,
       members: [...this.memberMap.values()].sort(byId),
       tracks: this.trackOrder.map((id) => this.trackMap.get(id)).filter((track) => track !== undefined),

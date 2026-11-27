@@ -20,6 +20,14 @@ export type OpId = string;
 /** A member's id. Opaque, made by the app, never by the relay (ADR-0006). */
 export type MemberId = string;
 
+/**
+ * Which project a session is. Opaque, made at random by the app when the project
+ * is created (at least 128 random bits), and fixed for the life of the session:
+ * no operation changes it. A joiner gets it with the session, so every member's
+ * copy has the same one (ADR-0017).
+ */
+export type ProjectId = string;
+
 export type TrackId = string;
 export type ClipId = string;
 

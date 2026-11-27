@@ -12,7 +12,7 @@ import {
   type SessionView,
   type UndoResult,
 } from '../src';
-import { runs, SEED } from './helpers';
+import { PROJECT, runs, SEED } from './helpers';
 import { type Dice, dice, idSource, type Kind, KINDS, randomChange, run, Sim, stepLists, stepOf } from './sim';
 
 /** Every field of every object as `[value, revision]` text, keyed by object and field. */
@@ -101,7 +101,7 @@ describe('undo and redo, property tests', () => {
         const authors = new Map(sim.log.map(({ operation }) => [operation.id, operation.author]));
         const reversed = new Set(sim.undos.values());
         const around = new Map<string, { before: Map<string, string>; after: Map<string, string> }>();
-        const session = Session.empty();
+        const session = Session.empty(PROJECT);
         for (const { operation } of sim.log) {
           const before = fieldStates(session);
           const applied = session.apply(operation).applied;
@@ -132,7 +132,7 @@ describe('undo and redo, property tests', () => {
       fc.property(stepLists(150), (steps) => {
         const sim = run(2, steps);
         sim.drain();
-        const session = Session.empty();
+        const session = Session.empty(PROJECT);
         const tookEffect = new Map<string, string>();
         for (const { operation } of sim.log) {
           if (session.apply(operation).applied) tookEffect.set(operation.id, operation.author);

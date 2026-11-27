@@ -11,6 +11,7 @@ A project file is the contract between versions of the app: a project saved toda
 
 - One UTF-8 JSON document, with LF line endings and a final newline. The app names it `<name>.collabgod`.
 - It starts with `"format": "collabgod.project"` and a whole-number `"version"`. An app opens any version up to its own, migrating older ones; it refuses a newer one and says so.
+- It says which project it is, with a random `projectId` made when the project was created. Every member's copy has the same one, and no edit changes it.
 - It holds the session as the shared order left it: the timeline, every member, track and clip, with the revision and the author of every field and the creator of every object. It holds no log.
 - It names each sample by content: its file hash, its audio hash when known, and its last-known file name. **It never holds a path.** Where a sample lives on this machine is kept by this install, outside the project (see [Samples](#samples)).
 - It may hold the undo and redo history of the member who saved it.
@@ -24,6 +25,7 @@ A project file is the contract between versions of the app: a project saved toda
 {
   "format": "collabgod.project",
   "version": 1,
+  "projectId": "p-0123456789abcdef0123456789abcdef",
   "seq": 11,
   "timeline": {"tempo":92.5,"timeSignature":{"numerator":7,"denominator":8},"rev":{"tempo":"chad:run1:2","timeSignature":"chad:run1:3"},"by":{"tempo":"chad","timeSignature":"chad"}},
   "members": [
@@ -57,12 +59,24 @@ Every object holds exactly the fields listed. A file with a field missing, a fie
 | --- | --- |
 | `format` | Always `"collabgod.project"`. Anything else is not a project file. |
 | `version` | The format version, a whole number. This page describes `1`. |
+| `projectId` | Which project this is. See below. |
 | `seq` | How many operations of the shared order the state includes, zero or more. Working alone, the next edit is `seq + 1`. |
 | `timeline` | The project's one tempo and time signature (DAW-5). |
 | `members` | Every member, removed ones included, by id. |
 | `tracks` | Every track, in track order. |
 | `clips` | Every clip, by id. |
 | `history` | Optional. The undo and redo history of the member who saved the file. |
+
+### `projectId`: which project this is
+
+Every copy of a project, on every member's machine, has the same `projectId`. Two files with the same one are copies of the same project, however far they have drifted apart; two with different ones are different projects, even if they started from the same file. Telling those apart is what bringing copies back together needs (#40).
+
+- **Made once**, at random, when a person creates the project: at least 128 random bits, as an opaque string of 1 to 256 characters (#161).
+- **Part of the session**, not only of the file. Whoever joins a lobby receives it with the session, so a member who joins and then saves writes the same id.
+- **Never changed by an edit.** No operation names it, and the model refuses one that tries.
+- **Save As** writes another copy of the same project, with the same id. **Save as a new project** gives the copy a new id, and from then on it is a different project. Its members, their ids and their verifiers stay as they were, so the two projects share member secrets for now (noted on #36).
+
+The file does not record which project a copy was made from.
 
 ### Revisions, authors and creators: who made what
 
@@ -168,6 +182,7 @@ Each entry is `{"opId": …, "inverse": …}`: the operation it reverses and the
 - **Paths of any kind**, as above.
 - **Edits the relay had not confirmed** when the file was saved. Resending them after a reconnect is Phase 2 (LOB-6).
 - **The member's secret, and which member this install is.** Both belong to the install.
+- **Where a project came from.** A project saved as a new one does not name the one it was copied from.
 - **The log of operations.** See ADR-0017.
 - Mixer, plugins, MIDI and automation: later phases, each a new format version.
 

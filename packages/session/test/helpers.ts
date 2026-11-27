@@ -18,6 +18,9 @@ export const hash = (n: number): string => n.toString(16).padStart(64, '0');
 
 export const sample = (n: number, name = `sample-${n}.wav`): SampleRef => ({ fileHash: hash(n), name });
 
+/** The project every test session belongs to. */
+export const PROJECT = 'project-under-test';
+
 /** A well-formed verifier for a member's secret, for test number `n`. */
 export const verifier = (n: number): MemberVerifier => ({ scheme: 'sha256', value: hash(0x5ec + n) });
 
@@ -50,7 +53,7 @@ export function reason(result: ApplyResult): string {
 }
 
 /** The state that results from applying operations in order to an empty session. */
-export function fold(operations: Iterable<Operation>, initial: Session = Session.empty()): Session {
+export function fold(operations: Iterable<Operation>, initial: Session = Session.empty(PROJECT)): Session {
   const session = initial;
   for (const operation of operations) session.apply(operation);
   return session;

@@ -1,7 +1,7 @@
 # ADR-0017: The project file keeps who made what as state, not as a log
 
 - **Status:** Accepted
-- **Date:** 2026-11-26 (accepted 2026-11-27)
+- **Date:** 2026-11-26 (accepted 2026-11-27; decision 8 added 2026-11-27, before any file was saved outside the tests)
 - **Deciders:** Chad
 
 ## Context
@@ -24,6 +24,7 @@ The session model already keeps, for every editable field, the id of the operati
 5. **Where samples live is a table kept by the install**, from content hash to the paths that held it, each checked against the file's size and modification time before it is trusted. It is never part of a project. A sample with no trusted entry is shown as missing; the project opens anyway.
 6. **The file is JSON with a format marker and a whole-number version**, one object per line, written field by field so that the same project always gives the same text. Older versions are migrated on load, one version at a time, by migrations that work on the parsed JSON. A newer version is refused with a reason.
 7. **Writes are atomic**: a temporary file in the same folder, flushed to the disk, then renamed over the project.
+8. **Every project has a random id, as session state.** The app makes it when a project is created. It is part of the session snapshot, so whoever joins a lobby receives it and every member's copy saves the same one, and no operation can change it. Save As keeps it; saving as a new project makes a new one. The file does not say which project a copy came from. Chad chose this on 2026-11-27, over working out a project's identity from its member ids.
 
 The format itself is documented in [`docs/project-format.md`](../project-format.md).
 
@@ -35,6 +36,9 @@ The format itself is documented in [`docs/project-format.md`](../project-format.
 - **The verifier only in the project file, outside the session.** Then the copy of whoever hosts would lack the other members' verifiers whenever they joined through someone else. It has to travel with the member, which means in the operation that adds them.
 - **Deciding the proof now** (a key pair instead of a hashed token). It is #36's to decide. A hashed random token is the simplest thing that fits "never the secret itself"; a key pair would be a second scheme.
 - **Paths in the project, or beside it in the project's folder.** A path is wrong on any other machine and gives away how someone's disk is laid out (NFR-6). A file beside the project would be copied along with it.
+- **No project id; copies recognised by sharing a member id** (what this record first said). It needs no new field, but a project duplicated to start a different song keeps its member ids, and would later be taken for the same project. Rewriting every member id, and every author, in the duplicate would close that, at the cost of fiddly rewriting. An explicit id is simpler, and adding it cost nothing while no project had been saved outside the tests.
+- **The id only in the file, beside the session.** Then a member who joined a lobby and saved would write a file with no id, or one their app made up. It has to travel with the session.
+- **Recording which project a copy came from.** Nothing in v1 reads it, and it would put a project's history into a file people send around. A later version can add it if merging copies needs it.
 - **A binary or compressed format.** Smaller and faster for very large sessions, but no diff, no reading it by eye when something goes wrong, and a 5,000-clip session is a few megabytes of text.
 
 ## Consequences
@@ -49,7 +53,8 @@ The format itself is documented in [`docs/project-format.md`](../project-format.
 - The project opens even when no sample is on this machine. The interface has to show missing samples on their clips (#31, #161).
 - The sample location table is written by the app with the same atomic write: a file is recorded in it when a person adds it (#32), and it is read when a project opens (#161). How it grows into the sample index is #42.
 - A verifier cannot be migrated. If #36 chooses a key pair, members of projects made before then keep the `sha256` scheme or cannot return as the same member. Until Phase 2 those are the maintainers' own test projects, which is accepted.
-- The file has no project id. The install finds itself in a project by member id, so nothing in v1 needs one. Copies of a project will drift apart, since every member keeps a whole copy and a file can be sent to anyone, and #40 has to tell two copies of one project from two projects. It can: member ids are random and made for one project (#161), and members are never deleted, so two copies that share a member id are the same project. An explicit id would be a new version, and its migration must take the id from the members, because one invented during migration would differ between copies that already exist.
+- Copies of a project will drift apart, since every member keeps a whole copy and a file can be sent to anyone. #40 tells two copies of one project from two projects by `projectId`. The install still finds itself in a project by member id, from its own table (#161).
+- A project saved as a new one keeps its members, their ids and their verifiers, so the two projects share each member's secret. Proving a secret to one project's host would give it away for the other. That is acceptable while projects are the maintainers' own, and it is noted on #36, whose proof of membership has to allow for it.
 - Bringing two copies that were edited apart back together needs the operations each made since they last agreed, which this file does not keep (decision 2). Saving those, and where a copy last agreed with a lobby, is a new version for Phase 2 (#40, #48). No file can have been in a lobby before then, so nothing is lost by waiting.
 - Power loss is untested. A writer killed at random moments tests crashes, and CI cannot cut the power. The flushes (`FlushFileBuffers` and a write-through rename on Windows, `F_FULLFSYNC` and a folder flush on macOS) are there for it.
 - A project file holds display names, which are personal data (#73).
