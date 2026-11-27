@@ -66,7 +66,9 @@ namespace collabgod
     };
 
     //==============================================================================
-    /** Tracktion's settings, in the app's settings folder. The audio device setup is not
+    /** Tracktion's settings, in a folder of their own inside the app's settings folder: its
+        file is Settings.xml, which on Windows and macOS (case-insensitive) is the same file as
+        the app's settings.xml. The audio device setup is not
         Tracktion's to keep: it comes from the choice in the app's own settings, so there is one
         record of what was chosen, and a fallback device Tracktion saw open is never written
         over it (ADR-0018). */
@@ -205,7 +207,7 @@ namespace collabgod
         timing = std::make_unique<CallbackTimer>();
 
         engine = std::make_unique<te::Engine> (
-            std::make_unique<Storage> (settings.getFolder(), [this]
+            std::make_unique<Storage> (settings.getFolder().getChildFile ("Engine"), [this]
             {
                 // What Tracktion opens at start: the remembered choice, outputs only. Nothing
                 // remembered: JUCE's default device, which initialise opens with no inputs.

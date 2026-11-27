@@ -195,6 +195,14 @@ namespace collabgod
             }
 
             r.expect (SettingsFile (temp.folder).audioChoice() == wanted, "the choice is in the settings file");
+            // On Windows and macOS file names are not case-sensitive: Tracktion's Settings.xml
+            // once overwrote the app's settings.xml.
+            juce::StringArray files;
+            for (const auto& file : temp.folder.findChildFiles (juce::File::findFiles, false))
+                files.add (file.getFileName());
+            r.expect (files == juce::StringArray { "settings.xml" }, "the engine's settings are kept apart from the app's: "
+                                                                        + files.joinIntoString (", "));
+            r.expect (temp.folder.getChildFile ("Engine").isDirectory(), "in a folder of their own");
 
             {
                 Fixture f (temp.folder);

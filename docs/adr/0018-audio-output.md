@@ -21,7 +21,7 @@ Tracktion and JUCE also keep the device setup in a way that does not fit a perso
 `EngineHost` (`app/src/EngineHost.h`) owns the engine and the output, and:
 
 1. **Opens outputs only.** Every device setup it gives JUCE names no input device and no input channels. The microphone permission text stays in the app's `Info.plist`, because macOS ends an app that touches an input without one, but it should never be shown.
-2. **Keeps one record of the choice**, the `audioOutput` entry in the app's own `settings.xml`, which Tracktion's settings read from and never write to. A fallback device is never saved over it.
+2. **Keeps one record of the choice**, the `audioOutput` entry in the app's own `settings.xml`, which Tracktion's settings (its own `Settings.xml`, in an `Engine` folder beside it, since Windows and macOS do not tell the two names apart) read from and never write to. A fallback device is never saved over it.
 3. **Falls back, then goes back.** When the chosen device goes away it plays through another output and says so; when the chosen device is listed again it opens it again, at the chosen rate and block size. With no device at all it opens the first one that appears. A driver type that does not announce devices coming back (ASIO, DirectSound) is scanned every 2 s while the chosen device is missing.
 4. **Never makes exclusive mode the default** (JUCE's first type with a device, Windows Audio in shared mode, is), and in exclusive mode uses the smallest block of at least 10 ms unless a block size was chosen.
 5. **Uses one audio thread by default**, as a setting a person can change (and `--audio-threads` for a run), until #113 says whether a pool is safe on small machines.
