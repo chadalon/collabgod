@@ -19,4 +19,5 @@ These are ideas only. None is designed, estimated or scheduled, and none should 
 - **Cosmetic skins.** Looks for the things other people in a lobby see, such as playheads, pointers, effects and themes. Cosmetic only, and no paid random items. Ownership would be checked by a hosted service, which needs accounts. (#106)
 - **Achievements.** Earned for making music together. Everyone earns them, and paid users claim the rewards. Needs accounts and a hosted service. (#116)
 - **More formats and platforms.** AU, CLAP and Linux.
+- **Version history.** Earlier versions of a project to look through and return to. A save keeps one backup of the version it replaced (#161), which covers a damaged save but not a mistake saved twice. (#163)
 - **Studio One import.** Bring existing projects across, either through the open DAWproject format or by reusing the `.song` parsing in [Studio-One-File-Finder](https://github.com/chadalon/Studio-One-File-Finder).
