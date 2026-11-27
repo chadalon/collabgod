@@ -41,13 +41,16 @@ The format itself is documented in [`docs/project-format.md`](../project-format.
 
 - Every member, track and clip carries one more string per field and one for its creator. The model's timing test (4 ms for a receive on a 5,000-clip session) still passes.
 - Every inverse that puts back a field carries its author (`restoreBy`), and every inverse that puts back an object carries its revisions, authors and creator (`restore`). A new kind of operation must do the same, or the inverse property test fails.
-- `member.add` needs a verifier, so the app must make a secret and its hash when it makes a member: when a project is created, and when someone joins.
+- `member.add` needs a verifier, so the app must make a secret and its hash when it makes a member: when a project is created (#161), and when someone joins (#36). Phase 1 therefore makes secrets before #36 has chosen how one is proven. The install keeps a member id and a secret for each project in its data folder (ADR-0006), outside every project.
 - Who made what is only as trustworthy as the members. The relay stamps each operation's author from the connection it has checked (ADR-0006), but an inverse names the revisions and authors it puts back, and nothing keeps the history to check them against. A member could forge them, as they already could the revisions. That is acceptable between people who invite each other; it is not an audit trail.
 - The file cannot answer "what did Sam do yesterday?". Showing who made each edit (#95) can show who last changed each field and who added each object, and nothing older. If people want more, that is the argument for keeping a log.
 - A saved undo history holds whole copies of what it would put back, such as a removed clip. That is how the model works; the file grows with the history, which has no limit yet (`packages/session`, "Not here yet").
 - Unconfirmed edits are not saved. Saving in the middle of a lobby session saves what the relay had confirmed.
-- The project opens even when no sample is on this machine. The interface has to show missing samples on their clips.
-- The sample location table is written by the app with the same atomic write, and how it grows into the sample index is #42.
+- The project opens even when no sample is on this machine. The interface has to show missing samples on their clips (#31, #161).
+- The sample location table is written by the app with the same atomic write: a file is recorded in it when a person adds it (#32), and it is read when a project opens (#161). How it grows into the sample index is #42.
+- A verifier cannot be migrated. If #36 chooses a key pair, members of projects made before then keep the `sha256` scheme or cannot return as the same member. Until Phase 2 those are the maintainers' own test projects, which is accepted.
+- The file has no project id. The install finds itself in a project by member id, so nothing in v1 needs one. If #40 needs one to tell two copies of a project from two projects, that is a new version with a migration.
+- Power loss is untested. A writer killed at random moments tests crashes, and CI cannot cut the power. The flushes (`FlushFileBuffers` and a write-through rename on Windows, `F_FULLFSYNC` and a folder flush on macOS) are there for it.
 - A project file holds display names, which are personal data (#73).
 - Changing the format means a new version, a migration and a new example file, kept for good (`docs/project-format.md`, "Changing the format").
 

@@ -68,7 +68,8 @@ The property tests drive the session model's own random runs (`packages/session/
 
 ## Not here yet
 
-- The app's Save and Open: the menu, the file dialog and the bridge messages that carry the text between the page and `writeFileAtomically`. The gate of Phase 1 needs them.
-- Making a member and its secret when a project is created, and where the install keeps the secret (#36).
+- The app's Save and Open: the menu, the file dialog and the bridge messages that carry the text between the page and `writeFileAtomically`, and keeping `sample-locations.json` in the app's data folder (#161). The gate of Phase 1 needs them.
+- Making a member and its secret when a project is created, and where the install keeps the secret (#161). How a returning member proves it is #36.
+- Recording a file in the location table when a person drops it on a track (#32).
 - The sample indexer that fills the location table as it scans (#42).
 - Saving edits the relay had not confirmed (Phase 2, LOB-6).

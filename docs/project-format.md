@@ -101,7 +101,7 @@ A member is a person in the project, not a connection (ADR-0006). Members are ma
 | --- | --- |
 | `sha256` | The SHA-256 of the member's secret, 64 lowercase hex digits. The secret is at least 128 random bits, kept by the member's install and never written to a project |
 
-How a returning member proves the secret is for #36. If it needs another kind of verifier, such as a public key, that is a new scheme and a new format version.
+Making the secret when a project is created is #161. How a returning member proves it is for #36. If it needs another kind of verifier, such as a public key, that is a new scheme and a new format version.
 
 ### `tracks`
 

@@ -67,4 +67,5 @@ Visual effects, polish, first-run experience, installers, a promotional website,
 | On a small Mac the engine's thread pool gives late audio during edits | Found in Phase 0 (#11). One audio thread cleared it. Find the cause and choose a safe default in Phase 1 (#113, #27). |
 | The second maintainer's iMac is on macOS 11 and the app needs 12 | Found in Phase 0. Settle it early in Phase 1 (#145): the Phase 1 gate is checked on that machine. |
 | Plugin sync has not run between two cities, through the TypeScript model or through the web view bridge | Phase 0 synced app instances on one network. First two-city plugin session in Phase 3 (ADR-0002). |
+| Projects hold a hashed-token verifier for each member from Phase 1, before the proof of membership is chosen | A verifier cannot be migrated (ADR-0017). If #36 chooses a key pair in Phase 2, members of earlier projects cannot return as themselves; until then those are the maintainers' test projects. Decide in #36 with that in mind. |
 | The differentiators are unconfirmed against StarSync and Audiotool | Competitor session (#4), before Phase 2 planning. |

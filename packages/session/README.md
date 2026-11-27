@@ -110,7 +110,7 @@ A split's `at` counts from the clip's start and a trim's edges are points in the
 ## Not here yet
 
 - A limit on how long the undo history grows, and grouping several operations into one undo step. The project file saves the history as it is (`@collabgod/project`).
-- Making a member's secret and checking it (#36). The model only holds the verifier.
+- Making a member's secret (#161) and checking it (#36). The model only holds the verifier.
 - Resending unconfirmed operations after a reconnect (Phase 2, LOB-6). Operation ids already make a resent operation recognisable.
 - A feed of what changed for the engine projection (#29) and the timeline (#31). See ADR-0014.
 - Mute and the rest of the mixer, MIDI, automation and plugins: later phases.
