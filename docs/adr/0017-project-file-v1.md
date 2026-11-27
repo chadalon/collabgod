@@ -1,7 +1,7 @@
 # ADR-0017: The project file keeps who made what as state, not as a log
 
-- **Status:** Proposed
-- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Date:** 2026-11-26 (accepted 2026-11-27)
 - **Deciders:** Chad
 
 ## Context
