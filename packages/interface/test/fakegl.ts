@@ -13,6 +13,8 @@ export interface FakeGlOptions {
   compiles?: (source: string) => boolean;
   /** No context, as when it is lost: every create call returns null. */
   lost?: boolean;
+  /** Link anything that compiled, as no real web view does. */
+  linksEverything?: boolean;
 }
 
 interface Shader {
@@ -96,6 +98,18 @@ export class FakeGl {
       program.log = 'missing a shader';
       return;
     }
+    if (this.options.linksEverything) {
+      program.linked = true;
+      this.linked.push(program);
+      return;
+    }
+    // Every input the fragment shader declares needs a matching vertex output, in every engine.
+    const outs = new Set(declared(vertex.source, 'out'));
+    const missing = declared(fragment.source, 'in').filter((name) => !outs.has(name));
+    if (missing.length > 0) {
+      program.log = `Input of fragment shader '${missing[0]}' not written by vertex shader`;
+      return;
+    }
     const mismatches = precisionMismatches({ name: 'fake', vertex: vertex.source, fragment: fragment.source });
     if (this.options.webkit && mismatches.length > 0) {
       program.log = 'Precisions of uniform differ between VERTEX and FRAGMENT shaders';
@@ -121,6 +135,12 @@ export class FakeGl {
   isContextLost(): boolean {
     return this.options.lost ?? false;
   }
+}
+
+/** Names declared `in` or `out` at the top level of a shader. */
+function declared(source: string, qualifier: 'in' | 'out'): string[] {
+  const pattern = new RegExp(`\\b${qualifier}\\s+(?:(?:highp|mediump|lowp|flat|smooth)\\s+)*\\w+\\s+(\\w+)\\s*;`, 'g');
+  return [...source.matchAll(pattern)].map((m) => m[1] as string);
 }
 
 function expectParameter(actual: number, expected: number): void {

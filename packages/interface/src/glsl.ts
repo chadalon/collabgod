@@ -95,8 +95,9 @@ export function checkPrograms(gl: ShaderGl, programs: readonly ShaderProgramSour
 }
 
 /**
- * Two programs that tell whether the check itself works in a web view: the first must
- * build, the second must not. If the broken one builds, failures would go unseen.
+ * Three programs that tell whether the check itself works in a web view: the first must
+ * build, the second must fail to compile and the third must fail to link. If either of
+ * the last two builds, that kind of failure would go unseen. Finding 2 was a link failure.
  */
 export const controlPrograms = {
   valid: {
@@ -123,6 +124,22 @@ void main() { gl_Position = vec4(a_position, 0.0, 1.0); }
 precision mediump float;
 out vec4 colour;
 void main() { colour = vec4(1.0, 0.0, 0.0) }
+`,
+  },
+  // Compiles, but the fragment shader reads an input the vertex shader never writes: a
+  // link error in every GLSL ES 3.00 implementation (4.3.4), unlike a precision mismatch,
+  // which Chromium links.
+  unlinked: {
+    name: 'control: unlinked',
+    vertex: `#version 300 es
+in vec2 a_position;
+void main() { gl_Position = vec4(a_position, 0.0, 1.0); }
+`,
+    fragment: `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+out vec4 colour;
+void main() { colour = vec4(v_uv, 0.0, 1.0); }
 `,
   },
 } as const satisfies Record<string, ShaderProgramSource>;
@@ -159,7 +176,8 @@ export function uniformPrecisions(glsl: string, stage: 'vertex' | 'fragment'): M
   const result = new Map<string, Precision>();
   // Statements in order, so a `precision` statement applies to what follows it.
   for (const statement of text.split(';')) {
-    const p = /^\s*precision\s+(highp|mediump|lowp)\s+(float|int)\s*$/.exec(statement);
+    // After the last brace, so one straight after a function body counts too.
+    const p = /(?:^|[{}])\s*precision\s+(highp|mediump|lowp)\s+(float|int)\s*$/.exec(statement);
     if (p !== null) {
       defaults[p[2] as Kind] = p[1] as Precision;
       continue;

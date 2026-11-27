@@ -167,6 +167,12 @@ export async function runSelfCheck(deps: SelfCheckDeps): Promise<Report> {
       const broken = buildProgram(gl, controlPrograms.broken);
       check(!broken.ok, 'shaders: a program with a syntax error built, so this check would miss a broken shader');
       if (broken.ok) gl.deleteProgram(broken.program);
+      const unlinked = buildProgram(gl, controlPrograms.unlinked);
+      check(
+        !unlinked.ok && unlinked.error.includes('did not link'),
+        `shaders: a program whose shaders do not match ${unlinked.ok ? 'linked' : `failed before linking (${unlinked.error})`}, so this check would miss a link failure`,
+      );
+      if (unlinked.ok) gl.deleteProgram(unlinked.program);
 
       const programs = deps.shaderPrograms ?? shaderPrograms;
       const failures = checkPrograms(gl, programs);

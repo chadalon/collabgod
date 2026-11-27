@@ -81,10 +81,28 @@ describe('checkPrograms', () => {
 });
 
 describe('the control programs', () => {
-  it('are one that builds and one that does not', () => {
+  it('are one that builds, one that does not compile and one that does not link', () => {
     const fake = new FakeGl({ webkit: true });
     expect(buildProgram(fake.gl, controlPrograms.valid).ok).toBe(true);
-    expect(buildProgram(fake.gl, controlPrograms.broken).ok).toBe(false);
+    const broken = buildProgram(fake.gl, controlPrograms.broken);
+    expect(broken.ok ? '' : broken.error).toContain('did not compile');
+    const unlinked = buildProgram(fake.gl, controlPrograms.unlinked);
+    expect(unlinked.ok ? '' : unlinked.error).toBe("control: unlinked: the program did not link: Input of fragment shader 'v_uv' not written by vertex shader");
+  });
+
+  it('fail to link the unlinked one where Chromium is lenient too, unlike a precision mismatch', () => {
+    expect(buildProgram(new FakeGl().gl, controlPrograms.unlinked).ok).toBe(false);
+  });
+
+  it('break the unlinked one only by the vertex output it lacks', () => {
+    const { unlinked } = controlPrograms;
+    const fixed = {
+      ...unlinked,
+      vertex: unlinked.vertex
+        .replace('in vec2 a_position;', 'in vec2 a_position;\nout vec2 v_uv;')
+        .replace('void main() {', 'void main() { v_uv = a_position;'),
+    };
+    expect(buildProgram(new FakeGl({ webkit: true }).gl, fixed).ok).toBe(true);
   });
 
   it('break the broken one only by its missing semicolon', () => {
@@ -124,6 +142,13 @@ uniform highp mat3 explicit;`;
         ['explicit', 'highp'],
       ]),
     );
+  });
+
+  it('sees a precision statement straight after a function body', () => {
+    const glsl = `float half(float x) { return x * 0.5; }
+precision highp float;
+uniform float after;`;
+    expect(uniformPrecisions(glsl, 'fragment').get('after')).toBe('highp');
   });
 
   it('reads several names in one declaration and arrays, and ignores comments, samplers, bools and blocks', () => {

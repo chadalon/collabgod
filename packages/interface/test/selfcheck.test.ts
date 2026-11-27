@@ -170,6 +170,12 @@ describe('runSelfCheck', () => {
     expect(report.failures).toEqual(['shaders: a program with a syntax error built, so this check would miss a broken shader']);
   });
 
+  it('fails when a program whose shaders do not match links, since link failures would then go unseen', async () => {
+    const { run } = setup({ gl: { linksEverything: true } });
+    const report = await run();
+    expect(report.failures).toEqual(['shaders: a program whose shaders do not match linked, so this check would miss a link failure']);
+  });
+
   it('fails when a valid program does not build, and gives the context back', async () => {
     const { run, released } = setup({ gl: { lost: true } });
     const report = await run();

@@ -24,14 +24,15 @@ describe('the shipped shader programs', () => {
     expect(shaderPrograms.flatMap(precisionMismatches)).toEqual([]);
   });
 
-  it('build where WebKit is strict', () => {
+  it('link where inputs must match outputs and WebKit is strict about precision', () => {
     expect(checkPrograms(new FakeGl({ webkit: true }).gl, shaderPrograms)).toEqual([]);
   });
 });
 
 describe('where shaders may live', () => {
-  // Every source file of the interface, as text, keyed by path.
-  const sources = import.meta.glob('../src/**/*.ts', { query: '?raw', import: 'default', eager: true });
+  // Every file under src, whatever its extension, as text, keyed by path. A shader in a
+  // .glsl file imported with ?raw must not get past these checks.
+  const sources = import.meta.glob('../src/**/*', { query: '?raw', import: 'default', eager: true });
 
   it('reads the sources', () => {
     expect(Object.keys(sources)).toContain('../src/shaders.ts');
@@ -43,6 +44,11 @@ describe('where shaders may live', () => {
     const offenders = Object.entries(sources)
       .filter(([path, text]) => glsl.test(text) && !['../src/shaders.ts', '../src/glsl.ts'].includes(path))
       .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  it('no shader is a file of its own', () => {
+    const offenders = Object.keys(sources).filter((path) => /\.(glsl|vert|frag|vs|fs|wgsl)$/i.test(path));
     expect(offenders).toEqual([]);
   });
 
