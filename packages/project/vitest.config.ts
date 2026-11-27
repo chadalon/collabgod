@@ -6,5 +6,7 @@ const scale = Number(
 );
 
 export default defineConfig({
-  test: { include: ['test/**/*.test.ts'], testTimeout: 10_000 * Math.max(1, scale) },
+  // 30 seconds a test: the longest property test takes about 4 here, and shared CI runners
+  // (Windows especially) can be several times slower. Timing budgets are asserted in the tests.
+  test: { include: ['test/**/*.test.ts'], testTimeout: 30_000 * Math.max(1, scale) },
 });
