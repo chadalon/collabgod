@@ -5,6 +5,7 @@
 
 import { backgroundColour, BridgeClient, CommandQueue, contractVersion, type EventName, FakeHost, functions } from '@collabgod/bridge';
 import { describe, expect, it } from 'vitest';
+import type { AudioStatus } from '../src/audio';
 import { ProbeTracker } from '../src/diagnostics';
 import { type Frame, type FrameDelivery, FrameFeed } from '../src/feed';
 import { controlPrograms } from '../src/glsl';
@@ -21,6 +22,10 @@ function setup(
     /** The page's WebGL2; none at all when null. */
     gl?: FakeGlOptions | null;
     shaderPrograms?: readonly ShaderProgramSource[];
+    /** The app has one simulated output instead of two. */
+    oneAudioDevice?: boolean;
+    /** The app never sends audioChanged. */
+    silentAudio?: boolean;
   } = {},
 ) {
   let seq = 0;
@@ -30,7 +35,17 @@ function setup(
   const logs: string[] = [];
   const fakeGl = options.gl === null ? undefined : new FakeGl(options.gl ?? { webkit: true });
   let released = 0;
-  const makeFrame = (): Frame => ({ seq: seq++, hostTimeMs: seq * 16.7, lastProbe });
+  const makeFrame = (): Frame => ({ seq: seq++, hostTimeMs: seq * 16.7, lastProbe, lateCallbacks: 0 });
+
+  // Audio: the contract's example status, on a simulated type with one or two devices.
+  const outputs = options.oneAudioDevice ? ['Simulated Output 1'] : ['Simulated Output 1', 'Simulated Output 2'];
+  let audio: AudioStatus = {
+    ...functions.chooseAudioOutput.example.result,
+    type: 'Simulated',
+    device: 'Simulated Output 1',
+    chosen: { type: 'Simulated', device: 'Simulated Output 1', sampleRate: 0, bufferSize: 0, audioThreads: 0 },
+  };
+  let audioEvents = 0;
 
   const host = new FakeHost({
     handlers: {
@@ -38,6 +53,12 @@ function setup(
       ping: (p) => ({ sentAtMs: p.sentAtMs, hostTimeMs: 1 }),
       pullFrame: () => makeFrame(),
       setFrameDelivery: (p) => ((delivery = p.frameDelivery), { frameDelivery: delivery }),
+      audioDevices: () => ({ types: [{ name: 'Simulated', devices: outputs }], status: audio }),
+      chooseAudioOutput: (c) => {
+        if (outputs.includes(c.device)) audio = { ...audio, device: c.device, chosen: c };
+        if (!options.silentAudio) setTimeout(() => host.emit('audioChanged', audio), 1);
+        return audio;
+      },
       log: (p) => void logs.push(p.message),
       selfCheckDone: (r) => void reports.push(r),
     },
@@ -60,6 +81,14 @@ function setup(
   const feed = new FrameFeed('pull', () => client.call('pullFrame'), () => undefined);
   const eventsSeen = new Set<EventName>();
   let pushed = 0;
+  client.on(
+    'audioChanged',
+    () => {
+      eventsSeen.add('audioChanged');
+      audioEvents += 1;
+    },
+    () => undefined,
+  );
   client.on(
     'frame',
     (f) => {
@@ -87,6 +116,7 @@ function setup(
       pushedFrames: () => pushed,
       backgrounds: () => [options.background ?? cssRgb(backgroundColour)],
       diagnostics: () => functions.reportDiagnostics.example.params,
+      audioEvents: () => audioEvents,
       setDelivery: async (d) => {
         const answer = await client.call('setFrameDelivery', { frameDelivery: d });
         feed.setDelivery(answer.frameDelivery);
@@ -117,6 +147,27 @@ describe('runSelfCheck', () => {
     const called = new Set(host.calls.map((c) => c.name));
     for (const name of Object.keys(functions)) expect(called).toContain(name);
     expect(called).toContain('commands');
+  });
+
+  it('switches the audio output and back, and sees audioChanged', async () => {
+    const { run, host } = setup();
+    const report = await run();
+    expect(report.failures).toEqual([]);
+    const chosen = host.calls.filter((c) => c.name === 'chooseAudioOutput').map((c) => (c.params[0] as { device: string }).device);
+    expect(chosen).toEqual(['Simulated Output 2', 'Simulated Output 1']);
+  });
+
+  it('fails when there is no second audio device to switch to', async () => {
+    const { run } = setup({ oneAudioDevice: true });
+    const report = await run();
+    expect(report.failures.join('\n')).toContain('needs a second device of type Simulated');
+  });
+
+  it('fails when the app never sends audioChanged', async () => {
+    const { run } = setup({ silentAudio: true });
+    const report = await run();
+    expect(report.failures.join('\n')).toContain('audio output: timed out');
+    expect(report.failures).toContain('the page never received audioChanged');
   });
 
   it('fails when commands never reach the engine', async () => {

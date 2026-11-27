@@ -38,6 +38,8 @@ export interface SelfCheckDeps {
   /** The computed background colours of the page's root and body, as CSS. */
   backgrounds: () => string[];
   diagnostics: () => Diagnostics;
+  /** audioChanged events received so far. */
+  audioEvents: () => number;
   /** Changes delivery on both sides. */
   setDelivery: (d: FrameDelivery) => Promise<void>;
   /** Resolves once `ready` returns true, polling every few milliseconds; rejects after `timeoutMs`. */
@@ -150,6 +152,31 @@ export async function runSelfCheck(deps: SelfCheckDeps): Promise<Report> {
   });
 
   await step('reportDiagnostics', () => call('reportDiagnostics', deps.diagnostics()));
+
+  // The audio settings (#27). `--bridge-check` runs the app on simulated sound cards with
+  // settings in a temporary folder, so this changes nothing a person chose. It opens another
+  // device of the open type, waits for audioChanged, and puts the original choice back.
+  await step('audio output', async () => {
+    const devices = await call('audioDevices');
+    check(devices.types.length > 0, 'audioDevices: the app lists no driver types');
+    const before = devices.status;
+    check(before.state !== 'none', `audioDevices: no output is open (${before.message})`);
+    const other = devices.types.find((t) => t.name === before.type)?.devices.find((d) => d !== before.device);
+    if (other === undefined) {
+      check(false, `chooseAudioOutput: needs a second device of type ${before.type} to switch to; the app runs this on simulated ones`);
+      return;
+    }
+
+    const events = deps.audioEvents();
+    const switched = await call('chooseAudioOutput', { ...before.chosen, type: before.type, device: other, sampleRate: 0, bufferSize: 0 });
+    check(switched.state === 'open' && switched.device === other, `chooseAudioOutput: asked for ${other}, the app has ${switched.device} (${switched.message})`);
+    await deps.waitFor(() => deps.audioEvents() > events, timeout);
+
+    const back = await call('chooseAudioOutput', before.chosen);
+    check(back.device === before.device, `chooseAudioOutput: put back ${before.device}, the app has ${back.device} (${back.message})`);
+    const frame = await call('pullFrame');
+    check(frame.lateCallbacks >= 0, 'pullFrame: lateCallbacks is negative');
+  });
 
   // Every shader the interface ships, compiled and linked in this web view (#20). CI runs
   // this in WKWebView and WebView2, because WebKit refused one that Chromium accepted.

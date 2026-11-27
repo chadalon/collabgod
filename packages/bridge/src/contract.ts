@@ -19,7 +19,7 @@
 
 import { type Infer, type ObjectSchema, t } from './schema';
 
-export const contractVersion = 1;
+export const contractVersion = 2;
 
 /**
  * Behind the page, in the web view and the window, so nothing flashes white before the
@@ -63,8 +63,63 @@ export const Frame = t.object(
     seq: t.integer('Counts frames built, push or pull, from 0 when the app starts'),
     hostTimeMs: t.number('Milliseconds since the app started, when this frame was built'),
     lastProbe: t.integer('The id of the last probe command the app carried out, or -1'),
+    lateCallbacks: t.integer('Audio callbacks that took longer than their block since the app started, timed by the app itself'),
   },
-  'A snapshot of engine state for one drawn frame. Engine fields arrive with #27 and #30',
+  'A snapshot of engine state for one drawn frame. Transport fields arrive with #30',
+);
+
+export const AudioState = t.enum(
+  'AudioState',
+  ['open', 'fallback', 'none'],
+  'Which audio output is open: the chosen one (or the default when none was chosen); another one, because the chosen one is unplugged; or none at all',
+);
+
+export const AudioChoice = t.object(
+  'AudioChoice',
+  {
+    type: t.string('A driver type as the app lists it, such as "Windows Audio", "ASIO" or "CoreAudio"; empty for the default'),
+    device: t.string('An output device of that type; empty for its default device'),
+    sampleRate: t.number("Samples per second; 0 for the device's own"),
+    bufferSize: t.integer("Samples per block; 0 for the device's own (in exclusive mode, the smallest of at least 10 ms)"),
+    audioThreads: t.integer("CPUs the engine may use for audio, the audio thread included; 0 for the app's default (one, until #113)"),
+  },
+  'An audio output, as a person chooses it. The app remembers it, and opens it again when it is plugged back in',
+);
+
+export const AudioStatus = t.object(
+  'AudioStatus',
+  {
+    state: AudioState,
+    type: t.string('The driver type of the open device; empty if none is open'),
+    device: t.string('The open device; empty if none is open'),
+    sampleRate: t.number('0 if no device is open'),
+    bufferSize: t.integer('Samples per block; 0 if no device is open'),
+    outputLatencyMs: t.number('What the driver reports as its output latency'),
+    sampleRates: t.array(t.number(), 'What the open device offers'),
+    bufferSizes: t.array(t.integer(), 'What the open device offers'),
+    chosen: t.doc(AudioChoice, 'What was chosen and is remembered'),
+    audioThreads: t.integer('CPUs the engine uses for audio now, the audio thread included'),
+    cpus: t.integer('CPUs the machine has'),
+    settled: t.boolean('The engine has settled since the device last started, so playback may start'),
+    lateCallbacks: t.integer('Audio callbacks that took longer than their block, timed by the app itself'),
+    deviceDropouts: t.integer('Dropouts the drivers reported, over every device opened; -1 if the device does not count them, as CoreAudio does not'),
+    message: t.string('Why the output is not as chosen, or why the last choice did not open; empty if all is well'),
+  },
+  'The audio output, as it is now',
+);
+
+export const AudioDeviceType = t.object('AudioDeviceType', {
+  name: t.string('As JUCE names it, such as "Windows Audio (Exclusive Mode)"'),
+  devices: t.array(t.string(), 'Its output devices, connected now'),
+});
+
+export const AudioDevices = t.object(
+  'AudioDevices',
+  {
+    types: t.array(AudioDeviceType, 'Every driver type on this machine, in the order the app offers them'),
+    status: AudioStatus,
+  },
+  'What can be chosen, and what is open',
 );
 
 export const PingParams = t.object('PingParams', { sentAtMs: t.number('The page clock when the ping was sent') });
@@ -161,6 +216,24 @@ const exampleDiagnostics: Infer<typeof Diagnostics> = {
   commands: 20,
 };
 
+const exampleAudioStatus: Infer<typeof AudioStatus> = {
+  state: 'open',
+  type: 'Windows Audio',
+  device: 'Focusrite USB (Focusrite USB Audio)',
+  sampleRate: 44100,
+  bufferSize: 441,
+  outputLatencyMs: 10,
+  sampleRates: [44100, 48000, 88200, 96000],
+  bufferSizes: [441],
+  chosen: { type: 'Windows Audio', device: 'Focusrite USB (Focusrite USB Audio)', sampleRate: 0, bufferSize: 0, audioThreads: 0 },
+  audioThreads: 1,
+  cpus: 16,
+  settled: true,
+  lateCallbacks: 0,
+  deviceDropouts: 0,
+  message: '',
+};
+
 export const functions = {
   hello: fn({
     doc: 'The page has loaded, or reloaded. Answers with what the page needs to know about the app',
@@ -192,13 +265,38 @@ export const functions = {
     doc: 'Builds a frame now. The page calls it as it starts drawing a frame when delivery is pull',
     params: null,
     result: Frame,
-    example: { params: undefined, result: { seq: 4211, hostTimeMs: 70183.25, lastProbe: 17 } },
+    example: { params: undefined, result: { seq: 4211, hostTimeMs: 70183.25, lastProbe: 17, lateCallbacks: 0 } },
   }),
   setFrameDelivery: fn({
     doc: 'Switches between pushed and pulled frames. Answers with the delivery now in use',
     params: FrameDeliverySetting,
     result: FrameDeliverySetting,
     example: { params: { frameDelivery: 'push' }, result: { frameDelivery: 'push' } },
+  }),
+  audioDevices: fn({
+    doc: 'Lists the driver types and their output devices, scanned again now, and what is open',
+    params: null,
+    result: AudioDevices,
+    example: {
+      params: undefined,
+      result: {
+        types: [
+          { name: 'Windows Audio', devices: ['Focusrite USB (Focusrite USB Audio)', 'Speakers (Realtek(R) Audio)'] },
+          { name: 'Windows Audio (Exclusive Mode)', devices: ['Focusrite USB (Focusrite USB Audio)', 'Speakers (Realtek(R) Audio)'] },
+          { name: 'ASIO', devices: ['Focusrite USB ASIO'] },
+        ],
+        status: exampleAudioStatus,
+      },
+    },
+  }),
+  chooseAudioOutput: fn({
+    doc: 'Opens this output and remembers it. If it will not open, what was open stays open and the answer says why in its message',
+    params: AudioChoice,
+    result: AudioStatus,
+    example: {
+      params: { type: 'Windows Audio', device: 'Focusrite USB (Focusrite USB Audio)', sampleRate: 0, bufferSize: 0, audioThreads: 0 },
+      result: exampleAudioStatus,
+    },
   }),
   log: fn({
     doc: "Writes to the app's log, so the page's errors are where a person or CI can read them",
@@ -224,7 +322,18 @@ export const events = {
   frame: event({
     doc: 'Sent on every display refresh while delivery is push',
     payload: Frame,
-    example: { seq: 4212, hostTimeMs: 70199.9, lastProbe: 17 },
+    example: { seq: 4212, hostTimeMs: 70199.9, lastProbe: 17, lateCallbacks: 0 },
+  }),
+  audioChanged: event({
+    doc: 'The audio output changed: a device was chosen, unplugged or plugged back in, or the engine settled. Not sent for the counters alone; frames carry lateCallbacks',
+    payload: AudioStatus,
+    example: {
+      ...exampleAudioStatus,
+      state: 'fallback',
+      device: 'Speakers (Realtek(R) Audio)',
+      settled: false,
+      message: '"Focusrite USB (Focusrite USB Audio)" (Windows Audio) is not available; playing through "Speakers (Realtek(R) Audio)" (Windows Audio) until it is back',
+    },
   }),
 } as const;
 

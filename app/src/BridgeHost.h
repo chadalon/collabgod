@@ -11,6 +11,9 @@
 
 namespace collabgod
 {
+    class EngineHost;
+    struct AudioStatus;
+
     struct HostSettings
     {
         /** The page comes from a folder on disk and reloads when it changes. */
@@ -32,16 +35,27 @@ namespace collabgod
     {
     public:
         explicit BridgeHost (HostSettings);
+        ~BridgeHost() override;
 
         // bridge::Handlers
         bridge::HostInfo hello() override;
         bridge::PingResult ping (const bridge::PingParams&) override;
         bridge::Frame pullFrame() override;
         bridge::FrameDeliverySetting setFrameDelivery (const bridge::FrameDeliverySetting&) override;
+        bridge::AudioDevices audioDevices() override;
+        bridge::AudioStatus chooseAudioOutput (const bridge::AudioChoice&) override;
         void log (const bridge::LogParams&) override;
         void reportDiagnostics (const bridge::Diagnostics&) override;
         void selfCheckDone (const bridge::SelfCheckReport&) override;
         void probe (const bridge::ProbeCommand&) override;
+
+        /** The audio engine whose output the page lists and chooses, or nullptr: without one
+            (the contract tests) the page is told there is no audio output. It must outlive
+            this host, or be set back to nullptr first. */
+        void setEngine (EngineHost*);
+
+        /** Called with the audio status whenever it changes, once the page has said hello. */
+        std::function<void (const bridge::AudioStatus&)> onAudioChanged;
 
         /** The next frame, numbered. */
         bridge::Frame buildFrame();
@@ -80,9 +94,13 @@ namespace collabgod
         juce::int64 lastProbe = -1;
         std::optional<bridge::Diagnostics> diagnostics;
         std::map<juce::String, int> calls;
+        EngineHost* engine = nullptr;
 
         JUCE_DECLARE_NON_COPYABLE (BridgeHost)
     };
+
+    /** The audio status and choice as the bridge carries them. */
+    bridge::AudioStatus toBridge (const AudioStatus&);
 
     /** The web view this platform uses. */
     bridge::WebView platformWebView();

@@ -9,6 +9,7 @@ import {
   type EventName,
   type JuceBackend,
 } from '@collabgod/bridge';
+import { AudioPanel, type AudioStatus } from './audio';
 import { type Diagnostics, formatDiagnostics, type HostInfo, ProbeTracker } from './diagnostics';
 import { type FrameDelivery, FrameFeed } from './feed';
 import type { ShaderGl } from './glsl';
@@ -27,11 +28,15 @@ export class Shell {
   private pushedFrames = 0;
   private host: HostInfo | undefined;
   private nextPanelUpdate = 0;
+  private audio: AudioStatus | undefined;
+  private audioEvents = 0;
+  private readonly audioPanel: AudioPanel | undefined;
 
   constructor(
     backend: JuceBackend,
     private readonly surface: Surface,
     private readonly panel: HTMLElement,
+    audioRoot?: HTMLElement,
   ) {
     this.client = new BridgeClient(backend);
     this.queue = new CommandQueue((batch) => this.client.sendCommands(batch), {
@@ -48,10 +53,32 @@ export class Shell {
       },
       (e) => this.report('error', e.message),
     );
+
+    this.audioPanel =
+      audioRoot === undefined
+        ? undefined
+        : new AudioPanel(audioRoot, {
+            list: () => this.client.call('audioDevices'),
+            choose: (choice) => this.client.call('chooseAudioOutput', choice),
+            report: (text) => this.report('warning', text),
+          });
+
+    this.client.on(
+      'audioChanged',
+      (status) => {
+        this.eventsSeen.add('audioChanged');
+        this.audioEvents += 1;
+        this.audio = status;
+        this.audioPanel?.statusChanged(status);
+      },
+      (e) => this.report('error', e.message),
+    );
   }
 
   async start(): Promise<void> {
     this.host = await this.client.call('hello');
+    // What is open now; audioChanged keeps it current from here.
+    this.audio = (await this.client.call('audioDevices')).status;
     this.feed.setDelivery(this.host.frameDelivery);
     this.panel.hidden = !this.host.showDiagnostics;
 
@@ -78,6 +105,7 @@ export class Shell {
         pushedFrames: () => this.pushedFrames,
         backgrounds: () => [document.documentElement, document.body].map((el) => getComputedStyle(el).backgroundColor),
         diagnostics: () => this.diagnostics(),
+        audioEvents: () => this.audioEvents,
         setDelivery: (d) => this.setDelivery(d),
         waitFor,
         now: () => performance.now(),
@@ -109,7 +137,7 @@ export class Shell {
 
     if (!this.panel.hidden && timestamp >= this.nextPanelUpdate) {
       this.nextPanelUpdate = timestamp + 250;
-      this.panel.textContent = formatDiagnostics(this.host, this.diagnostics());
+      this.panel.textContent = formatDiagnostics(this.host, this.diagnostics(), this.audio, this.feed.latest?.lateCallbacks);
     }
   }
 
@@ -141,8 +169,16 @@ export class Shell {
     };
   }
 
+  /** Shows or hides the audio settings. */
+  toggleAudio(): void {
+    void this.audioPanel?.toggle();
+  }
+
   private key(e: KeyboardEvent): void {
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === ',') {
+      e.preventDefault();
+      this.toggleAudio();
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
       e.preventDefault();
       this.panel.hidden = !this.panel.hidden;
       this.nextPanelUpdate = 0;

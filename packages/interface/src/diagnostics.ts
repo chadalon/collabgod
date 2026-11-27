@@ -6,6 +6,7 @@
 // includes it, and how many drawn frames had no new engine data.
 
 import type { Diagnostics as DiagnosticsSchema, HostInfo as HostInfoSchema, Infer } from '@collabgod/bridge';
+import { type AudioStatus, formatAudio } from './audio';
 import { RollingTimings, type TimingSummary } from './stats';
 
 export type Diagnostics = Infer<typeof DiagnosticsSchema>;
@@ -42,8 +43,8 @@ export class ProbeTracker {
 const ms = (t: TimingSummary): string =>
   t.samples === 0 ? 'no samples yet' : `median ${t.medianMs.toFixed(2)} ms, p95 ${t.p95Ms.toFixed(2)} ms, max ${t.maxMs.toFixed(2)} ms (${t.samples})`;
 
-/** The panel's text. */
-export function formatDiagnostics(host: HostInfo | undefined, d: Diagnostics): string {
+/** The panel's text. `audio` is the latest audio status; `lateCallbacks` the latest frame's count. */
+export function formatDiagnostics(host: HostInfo | undefined, d: Diagnostics, audio?: AudioStatus, lateCallbacks?: number): string {
   const stalePercent = d.drawnFrames === 0 ? 0 : (100 * d.staleFrames) / d.drawnFrames;
   return [
     host === undefined
@@ -54,6 +55,7 @@ export function formatDiagnostics(host: HostInfo | undefined, d: Diagnostics): s
     `Bridge round trip: ${ms(d.roundTrip)}`,
     `Command to drawn frame: ${ms(d.probe)}`,
     `Engine commands: ${d.commands} in ${d.commandBatches} batches`,
-    'P switches push and pull · Ctrl+Shift+D (Cmd+Shift+D on a Mac) hides this',
+    formatAudio(audio, lateCallbacks),
+    'P switches push and pull · Ctrl+, (Cmd+, on a Mac) opens the audio settings · Ctrl+Shift+D (Cmd+Shift+D) hides this',
   ].join('\n');
 }

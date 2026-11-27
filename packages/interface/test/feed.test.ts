@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Frame, FrameFeed } from '../src/feed';
 
-const frame = (seq: number, hostTimeMs = seq * 16.7): Frame => ({ seq, hostTimeMs, lastProbe: -1 });
+const frame = (seq: number, hostTimeMs = seq * 16.7): Frame => ({ seq, hostTimeMs, lastProbe: -1, lateCallbacks: 0 });
 
 describe('FrameFeed', () => {
   it('counts drawn frames that had no new engine frame', () => {
