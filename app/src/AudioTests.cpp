@@ -84,16 +84,25 @@ namespace collabgod
                               SimulatedAudioDeviceType::Clock clock = SimulatedAudioDeviceType::Clock::manual,
                               juce::String typeName = SimulatedAudioDeviceType::typeName,
                               int defaultBlock = 441,
-                              int threadsOverride = 0)
+                              int threadsOverride = 0,
+                              juce::String otherTypeName = {})
             {
-                auto t = std::make_unique<SimulatedAudioDeviceType> (clock, juce::StringArray { "Simulated Output 1", "Simulated Output 2" },
-                                                                     typeName, defaultBlock);
+                const juce::StringArray names { "Simulated Output 1", "Simulated Output 2" };
+                auto t = std::make_unique<SimulatedAudioDeviceType> (clock, names, typeName, defaultBlock);
                 type = t.get();
 
                 EngineHost::Options options;
                 options.settingsFolder = folder;
                 options.systemDevices = false;
-                options.extraType = std::move (t);
+                options.extraTypes.push_back (std::move (t));
+
+                // A second type listing the same devices, as Windows Audio and its exclusive mode do.
+                if (otherTypeName.isNotEmpty())
+                {
+                    auto o = std::make_unique<SimulatedAudioDeviceType> (clock, names, otherTypeName, defaultBlock);
+                    other = o.get();
+                    options.extraTypes.push_back (std::move (o));
+                }
                 options.audioThreadsOverride = threadsOverride;
                 options.watchForStalls = clock == SimulatedAudioDeviceType::Clock::realTime;
                 host = std::make_unique<EngineHost> (std::move (options));
@@ -109,6 +118,7 @@ namespace collabgod
             bool settle (int timeoutMs = 6000) { return pumpUntil ([this] { return host->isSettled(); }, timeoutMs); }
 
             SimulatedAudioDeviceType* type = nullptr; // owned by the device manager
+            SimulatedAudioDeviceType* other = nullptr; // likewise; only with otherTypeName
             std::unique_ptr<EngineHost> host;
         };
 
@@ -362,6 +372,34 @@ namespace collabgod
             r.expect (s.bufferSize == 480, "at 48 kHz, 10 ms is 480 samples: " + juce::String (s.bufferSize));
         }
 
+        void testSameDeviceOtherType (Results& r)
+        {
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            // Windows Audio and its exclusive mode list the same devices by the same names.
+            const juce::String shared = SimulatedAudioDeviceType::typeName, exclusive = "Simulated (Exclusive Mode)";
+            Fixture f (temp.folder, SimulatedAudioDeviceType::Clock::manual, shared, 441, 0, exclusive);
+
+            auto openType = [&f]
+            {
+                auto* d = f.host->getDeviceManager().getCurrentAudioDevice();
+                return d != nullptr ? d->getTypeName() : juce::String ("nothing");
+            };
+
+            auto s = f.host->choose ({ shared, "Simulated Output 1", 44100.0, 441, 0 });
+            r.expect (s.state == AudioState::open && openType() == shared, "the device opens under the first type: " + openType());
+
+            // Same name, rate and block size: JUCE alone keeps the first type's device open.
+            s = f.host->choose ({ exclusive, "Simulated Output 1", 44100.0, 441, 0 });
+            r.expect (s.state == AudioState::open && s.type == exclusive && openType() == exclusive,
+                      "choosing the same device under another type opens it under that type: " + openType());
+            r.expect (f.other->findOpenDevice ("Simulated Output 1") != nullptr && f.type->findOpenDevice ("Simulated Output 1") == nullptr,
+                      "and closes the first type's");
+
+            s = f.host->choose ({ shared, "Simulated Output 1", 0.0, 0, 0 });
+            r.expect (s.state == AudioState::open && openType() == shared, "and back again: " + openType());
+        }
+
         void testRemovalAndReconnection (Results& r)
         {
             const ScopedSilentLog silent;
@@ -485,6 +523,7 @@ namespace collabgod
         testLateCallbacks (r);
         testAudioThreads (r);
         testExclusiveMode (r);
+        testSameDeviceOtherType (r);
         testRemovalAndReconnection (r);
         testRemovalWhilePlaying (r);
         testStalledDevice (r);

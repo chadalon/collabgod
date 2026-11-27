@@ -239,7 +239,7 @@ namespace collabgod
                 simulatedSettings = std::make_unique<juce::TemporaryFile> ("collabgod-simulated-audio");
                 audio.settingsFolder = simulatedSettings->getFile();
                 audio.systemDevices = false;
-                audio.extraType = std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::realTime);
+                audio.extraTypes.push_back (std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::realTime));
                 log ("Simulated audio: no sound card is used, and nothing chosen is remembered");
             }
 

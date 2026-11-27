@@ -89,8 +89,8 @@ namespace collabgod
             juce::File settingsFolder;
             /** Offer the operating system's driver types (WASAPI, ASIO, CoreAudio and the rest). */
             bool systemDevices = true;
-            /** A driver type of the test's or of --simulated-audio's, offered alongside (or instead). */
-            std::unique_ptr<juce::AudioIODeviceType> extraType;
+            /** Driver types of the tests' or of --simulated-audio's, offered alongside (or instead). */
+            std::vector<std::unique_ptr<juce::AudioIODeviceType>> extraTypes;
             /** --audio-threads: use this many, without remembering it; 0 for the remembered one. */
             int audioThreadsOverride = 0;
             /** Run the settle check on a timer. Tests turn it off and call poll() themselves. */

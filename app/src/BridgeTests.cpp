@@ -264,7 +264,7 @@ namespace collabgod
                 EngineHost::Options options;
                 options.settingsFolder = folder;
                 options.systemDevices = false;
-                options.extraType = std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::manual);
+                options.extraTypes.push_back (std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::manual));
                 options.pollOnTimer = false;
                 EngineHost engine (std::move (options));
 

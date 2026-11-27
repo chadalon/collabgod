@@ -219,8 +219,9 @@ namespace collabgod
 
         auto& dm = getDeviceManager();
 
-        if (options.extraType != nullptr)
-            dm.addAudioDeviceType (std::move (options.extraType));
+        for (auto& type : options.extraTypes)
+            dm.addAudioDeviceType (std::move (type));
+        options.extraTypes.clear();
 
         // Before Tracktion's own callback: see CallbackTimer.
         dm.addAudioCallback (&timing->start);
@@ -349,6 +350,13 @@ namespace collabgod
             dm.closeAudioDevice();
             stalled = false;
         }
+
+        // Nor is a device of the same name under another driver type: initialiseFromXML
+        // changes the type's name but compares only the device names, rate and block size,
+        // so the old type's device kept playing. Windows Audio and its exclusive mode list
+        // the same devices, and switching between them did nothing (#27, on Chad's desktop).
+        if (auto* open = dm.getCurrentAudioDevice(); open != nullptr && choice.type.isNotEmpty() && open->getTypeName() != choice.type)
+            dm.closeAudioDevice();
 
         if (choice.device.isEmpty())
             error = dm.initialise (0, 2, nullptr, false);
