@@ -22,6 +22,8 @@ import {
 } from '@collabgod/bridge';
 import type { Diagnostics, HostInfo, ProbeTracker } from './diagnostics';
 import type { FrameDelivery, FrameFeed } from './feed';
+import { buildProgram, checkPrograms, controlPrograms, type ShaderGl } from './glsl';
+import { type ShaderProgramSource, shaderPrograms } from './shaders';
 
 export interface SelfCheckDeps {
   client: BridgeClient;
@@ -45,6 +47,10 @@ export interface SelfCheckDeps {
   recordRoundTrip: (ms: number) => void;
   /** How long to wait for frames or a command to show; 5 s by default. */
   stepTimeoutMs?: number;
+  /** A WebGL2 context to check the shaders in, and how to give it back; undefined if there is none. */
+  webgl: () => { gl: ShaderGl; renderer: string; release: () => void } | undefined;
+  /** The programs to check; every program the interface ships by default. */
+  shaderPrograms?: readonly ShaderProgramSource[];
 }
 
 export type Report = Infer<typeof SelfCheckReport>;
@@ -144,6 +150,38 @@ export async function runSelfCheck(deps: SelfCheckDeps): Promise<Report> {
   });
 
   await step('reportDiagnostics', () => call('reportDiagnostics', deps.diagnostics()));
+
+  // Every shader the interface ships, compiled and linked in this web view (#20). CI runs
+  // this in WKWebView and WebView2, because WebKit refused one that Chromium accepted.
+  await step('shaders', async () => {
+    const context = deps.webgl();
+    if (context === undefined) {
+      check(false, 'shaders: no WebGL2 context, and the interface draws with WebGL2 (webview-ui finding 3)');
+      return;
+    }
+    const { gl } = context;
+    try {
+      const valid = buildProgram(gl, controlPrograms.valid);
+      check(valid.ok, `shaders: a valid program did not build, so no shader can be checked here (${valid.ok ? '' : valid.error})`);
+      if (valid.ok) gl.deleteProgram(valid.program);
+      const broken = buildProgram(gl, controlPrograms.broken);
+      check(!broken.ok, 'shaders: a program with a syntax error built, so this check would miss a broken shader');
+      if (broken.ok) gl.deleteProgram(broken.program);
+      const unlinked = buildProgram(gl, controlPrograms.unlinked);
+      check(
+        !unlinked.ok && unlinked.error.includes('did not link'),
+        `shaders: a program whose shaders do not match ${unlinked.ok ? 'linked' : `failed before linking (${unlinked.error})`}, so this check would miss a link failure`,
+      );
+      if (unlinked.ok) gl.deleteProgram(unlinked.program);
+
+      const programs = deps.shaderPrograms ?? shaderPrograms;
+      const failures = checkPrograms(gl, programs);
+      for (const f of failures) check(false, `shaders: ${f}`);
+      await call('log', { level: 'info', message: `Shaders: ${programs.length - failures.length} of ${programs.length} programs built in ${context.renderer}` });
+    } finally {
+      context.release();
+    }
+  });
 
   const expected = cssRgb(backgroundColour);
   for (const colour of deps.backgrounds()) {
