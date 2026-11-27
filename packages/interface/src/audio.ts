@@ -83,7 +83,10 @@ export function audioForm(devices: AudioDevices): AudioForm {
   };
 }
 
-/** The choice to send when one control changes. A new type or device starts at its own rate and size. */
+/**
+ * The choice to send when one control changes. A new type or device starts at its own rate and size.
+ * A new type gets no device here: the panel picks one with `chooseType`, which names it.
+ */
 export function changeChoice(current: AudioChoice, field: keyof AudioChoice, value: string | number): AudioChoice {
   switch (field) {
     case 'type':
@@ -97,6 +100,44 @@ export function changeChoice(current: AudioChoice, field: keyof AudioChoice, val
     case 'audioThreads':
       return { ...current, audioThreads: Math.trunc(Number(value)) };
   }
+}
+
+/**
+ * The choices to try, in order, when the person picks a driver type. Each names its device:
+ * a choice with no device means "that type's default", which is remembered as such, so the app
+ * would not notice the device being unplugged, and the person could not pick it by name, since
+ * it would already look selected. The device open now comes first if the new type lists it
+ * (Windows Audio to its exclusive mode, say), then the type's devices in the driver's order,
+ * which puts its default first. The default can be a driver with no hardware behind it (an
+ * ASIO driver for an interface that is not there), so the others must be tried too.
+ */
+export function typeCandidates(devices: AudioDevices, current: AudioChoice, type: string): AudioChoice[] {
+  const base = changeChoice(current, 'type', type);
+  const listed = devices.types.find((t) => t.name === type)?.devices ?? [];
+  const open = devices.status.device;
+  const names = listed.includes(open) ? [open, ...listed.filter((d) => d !== open)] : listed;
+  // A type with no devices listed: only the app can say whether it opens anything.
+  return names.length === 0 ? [base] : names.map((device) => ({ ...base, device }));
+}
+
+/**
+ * Picks a driver type: tries its devices in turn until one opens on that type. Returns the
+ * status of the one that opened, or of the last refusal, in which case the app has kept what
+ * was open before.
+ */
+export async function chooseType(
+  devices: AudioDevices,
+  current: AudioChoice,
+  type: string,
+  choose: (choice: AudioChoice) => Promise<AudioStatus>,
+): Promise<AudioStatus> {
+  let status = devices.status;
+  for (const candidate of typeCandidates(devices, current, type)) {
+    status = await choose(candidate);
+    const opened = status.state === 'open' && status.type === type;
+    if (opened && (candidate.device === '' || status.device === candidate.device)) return status;
+  }
+  return status;
 }
 
 /** The choice as the form shows it: what is open, with the person's own rate, size and threads. */
@@ -173,8 +214,11 @@ export class AudioPanel {
     if (this.devices === undefined || this.busy) return;
     this.busy = true;
     try {
-      const choice = changeChoice(currentChoice(this.devices.status), field, value);
-      const status = await this.backend.choose(choice);
+      const current = currentChoice(this.devices.status);
+      const status =
+        field === 'type'
+          ? await chooseType(this.devices, current, value, (c) => this.backend.choose(c))
+          : await this.backend.choose(changeChoice(current, field, value));
       this.devices = { ...this.devices, status };
       await this.refresh();
     } catch (e) {

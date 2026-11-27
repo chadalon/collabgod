@@ -2,7 +2,17 @@
 
 import { functions } from '@collabgod/bridge';
 import { describe, expect, it } from 'vitest';
-import { type AudioDevices, type AudioStatus, audioForm, changeChoice, currentChoice, formatAudio } from '../src/audio';
+import {
+  type AudioChoice,
+  type AudioDevices,
+  type AudioStatus,
+  audioForm,
+  changeChoice,
+  chooseType,
+  currentChoice,
+  formatAudio,
+  typeCandidates,
+} from '../src/audio';
 
 const example = functions.audioDevices.example.result;
 const status = (over: Partial<AudioStatus> = {}): AudioStatus => ({ ...example.status, ...over });
@@ -70,6 +80,67 @@ describe('changeChoice', () => {
   it('starts from what is open', () => {
     const s = status({ state: 'fallback', device: 'Speakers', chosen: { ...base } });
     expect(currentChoice(s)).toEqual({ ...base, device: 'Speakers' });
+  });
+});
+
+describe('choosing a driver type', () => {
+  const focusrite = 'Speakers (2- Focusrite USB Audio)';
+  const machine: AudioDevices['types'] = [
+    { name: 'Windows Audio', devices: [focusrite, 'Realtek Digital Output'] },
+    { name: 'Windows Audio (Exclusive Mode)', devices: ['Realtek Digital Output', focusrite] },
+    // As on Chad's desktop: ASIO's default is a driver for an interface that is not there.
+    { name: 'ASIO', devices: ['Focusrite Thunderbolt ASIO', 'Focusrite USB ASIO', 'Realtek ASIO'] },
+    { name: 'Empty', devices: [] },
+  ];
+  const openNow = status({ state: 'open', type: 'Windows Audio', device: focusrite, message: '' });
+  const onMachine: AudioDevices = { types: machine, status: openNow };
+  const current = currentChoice(openNow);
+
+  /** A fake app: opens what it is asked for unless it is in `broken`, in which case it keeps what was open. */
+  const app = (broken: string[] = []) => {
+    const asked: AudioChoice[] = [];
+    let open = openNow;
+    const choose = async (c: AudioChoice): Promise<AudioStatus> => {
+      asked.push(c);
+      if (broken.includes(c.device)) return { ...open, message: `Cannot open ${c.device}` };
+      open = status({ state: 'open', type: c.type, device: c.device, message: '' });
+      return open;
+    };
+    return { asked, choose };
+  };
+
+  it('names a device, so the default is never remembered as "whatever is default"', () => {
+    for (const c of typeCandidates(onMachine, current, 'ASIO')) expect(c.device).not.toBe('');
+  });
+
+  it('keeps the open device when the new type has it, then tries the rest in the driver’s order', () => {
+    expect(typeCandidates(onMachine, current, 'Windows Audio (Exclusive Mode)').map((c) => c.device)).toEqual([focusrite, 'Realtek Digital Output']);
+    expect(typeCandidates(onMachine, current, 'ASIO').map((c) => c.device)).toEqual(['Focusrite Thunderbolt ASIO', 'Focusrite USB ASIO', 'Realtek ASIO']);
+  });
+
+  it('a type with no devices listed is still asked for, and the app decides', () => {
+    expect(typeCandidates(onMachine, current, 'Empty')).toEqual([{ ...current, type: 'Empty', device: '', sampleRate: 0, bufferSize: 0 }]);
+  });
+
+  it('opens the first device that works when the default will not open', async () => {
+    const { asked, choose } = app(['Focusrite Thunderbolt ASIO']);
+    const s = await chooseType(onMachine, current, 'ASIO', choose);
+    expect(s).toMatchObject({ state: 'open', type: 'ASIO', device: 'Focusrite USB ASIO' });
+    expect(asked.map((c) => c.device)).toEqual(['Focusrite Thunderbolt ASIO', 'Focusrite USB ASIO']);
+  });
+
+  it('stops at the first device that opens', async () => {
+    const { asked, choose } = app();
+    const s = await chooseType(onMachine, current, 'Windows Audio (Exclusive Mode)', choose);
+    expect(s).toMatchObject({ type: 'Windows Audio (Exclusive Mode)', device: focusrite });
+    expect(asked).toHaveLength(1);
+  });
+
+  it('when nothing opens, ends with the refusal and what was open before', async () => {
+    const { asked, choose } = app(['Focusrite Thunderbolt ASIO', 'Focusrite USB ASIO', 'Realtek ASIO']);
+    const s = await chooseType(onMachine, current, 'ASIO', choose);
+    expect(asked).toHaveLength(3);
+    expect(s).toMatchObject({ type: 'Windows Audio', device: focusrite, message: 'Cannot open Realtek ASIO' });
   });
 });
 

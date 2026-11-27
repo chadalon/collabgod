@@ -38,7 +38,7 @@ A Release build serves the copy beside it, so it runs without the source tree.
 
 ## Audio settings
 
-**Ctrl+,** (**Cmd+,** on a Mac), or the Audio button, opens the audio settings (`src/audio.ts`): driver type, output device, sample rate, block size and audio threads. Every change is sent to the app at once with `chooseAudioOutput`; the app opens it, remembers it in its settings file, and answers with what is open. If the chosen device is unplugged the app plays through another one and sends `audioChanged`, and the panel shows the chosen device as unplugged until it is back ([ADR-0018](../../docs/adr/0018-audio-output.md)). Plain HTML until the design system (#33) restyles it.
+**Ctrl+,** (**Cmd+,** on a Mac), or the Audio button, opens the audio settings (`src/audio.ts`): driver type, output device, sample rate, block size and audio threads. Every change is sent to the app at once with `chooseAudioOutput`; the app opens it, remembers it in its settings file, and answers with what is open. Picking a driver type always names a device: the one open now if that type has it, otherwise the type's devices in turn until one opens, since a type's default can be a driver with no hardware behind it. If the chosen device is unplugged the app plays through another one and sends `audioChanged`, and the panel shows the chosen device as unplugged until it is back ([ADR-0018](../../docs/adr/0018-audio-output.md)). Plain HTML until the design system (#33) restyles it.
 
 The page also sends these to the app every 30 seconds, which writes them to its log: `~/Library/Logs/CollabGod/CollabGod.log` on macOS, `%APPDATA%\CollabGod\CollabGod.log` on Windows.
 
