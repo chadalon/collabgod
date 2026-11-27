@@ -8,9 +8,12 @@
 #include "ProjectFile.h"
 
 #if JUCE_WINDOWS
+ #include <iterator>
  #include <windows.h>
 #else
  #include <cerrno>
+ #include <climits>
+ #include <cstdlib>
  #include <cstring>
  #include <fcntl.h>
  #include <sys/stat.h>
@@ -66,6 +69,49 @@ namespace collabgod
                 result = lastError ("cannot close " + temporary.getFullPathName());
 
             return result;
+        }
+
+        /** The file a link at `target` points to, so the save lands there and the link stays a link. */
+        juce::Result resolve (const juce::File& target, juce::File& real)
+        {
+            real = target;
+            const auto attributes = GetFileAttributesW (target.getFullPathName().toWideCharPointer());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0)
+                return juce::Result::ok();
+
+            // Opening follows the link (or junction, or cloud placeholder) to what it names.
+            const auto handle = CreateFileW (target.getFullPathName().toWideCharPointer(), 0,
+                                             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+                return lastError (target.getFullPathName() + " is a link to nothing");
+
+            wchar_t path[32768] {};
+            const auto length = GetFinalPathNameByHandleW (handle, path, (DWORD) std::size (path), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+            auto result = length == 0 || length >= std::size (path) ? lastError ("cannot follow " + target.getFullPathName())
+                                                                    : juce::Result::ok();
+            CloseHandle (handle);
+            if (result.failed())
+                return result;
+
+            // The answer is in \\?\ form: \\?\C:\... or \\?\UNC\server\share\...
+            auto name = juce::String (path);
+            if (name.startsWith ("\\\\?\\UNC\\"))
+                name = "\\\\" + name.substring (8);
+            else if (name.startsWith ("\\\\?\\"))
+                name = name.substring (4);
+            real = juce::File (name);
+            return juce::Result::ok();
+        }
+
+        /** A file the person made read-only is not saved over. Checked first, since the rename's
+            retries would otherwise spend a second on it before giving up. */
+        juce::Result checkWritable (const juce::File& target)
+        {
+            const auto attributes = GetFileAttributesW (target.getFullPathName().toWideCharPointer());
+            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) != 0)
+                return juce::Result::fail (target.getFullPathName() + " is read-only");
+            return juce::Result::ok();
         }
 
         juce::Result renameOver (const juce::File& temporary, const juce::File& target)
@@ -127,8 +173,10 @@ namespace collabgod
                 const auto written = write (fd, bytes + done, size - done);
                 if (written < 0 && errno == EINTR)
                     continue;
-                if (written <= 0)
+                if (written < 0)
                     result = lastError ("cannot write " + path);
+                else if (written == 0)
+                    result = juce::Result::fail ("cannot write " + path + ": no bytes were written"); // errno is not set
                 else
                     done += (size_t) written;
             }
@@ -161,6 +209,33 @@ namespace collabgod
             return juce::Result::ok();
         }
 
+        /** The file a symbolic link at `target` points to, through any chain of links, so the save
+            lands there and the link stays a link. A folder link on the way needs nothing: the
+            temporary file is made in whatever folder the path leads to. */
+        juce::Result resolve (const juce::File& target, juce::File& real)
+        {
+            real = target;
+            struct stat info {};
+            if (lstat (target.getFullPathName().toRawUTF8(), &info) != 0 || ! S_ISLNK (info.st_mode))
+                return juce::Result::ok();
+
+            char path[PATH_MAX] {};
+            if (realpath (target.getFullPathName().toRawUTF8(), path) == nullptr)
+                return lastError (target.getFullPathName() + " is a link to nothing");
+
+            real = juce::File (juce::String (juce::CharPointer_UTF8 (path)));
+            return juce::Result::ok();
+        }
+
+        /** A file the person made read-only is not saved over, as on Windows. POSIX would allow it,
+            since replacing a file needs only the folder to be writable. */
+        juce::Result checkWritable (const juce::File& target)
+        {
+            if (access (target.getFullPathName().toRawUTF8(), F_OK) == 0 && access (target.getFullPathName().toRawUTF8(), W_OK) != 0)
+                return lastError (target.getFullPathName() + " is read-only");
+            return juce::Result::ok();
+        }
+
         /** The target's permissions if it exists, so a save does not change who may read it. */
         mode_t modeFor (const juce::File& target)
         {
@@ -177,13 +252,21 @@ namespace collabgod
         return "." + target.getFileName() + ".*.tmp";
     }
 
-    juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size)
+    juce::Result writeFileAtomically (const juce::File& given, const void* data, size_t size)
     {
+        // Save through a link to the file it names, never over the link itself.
+        juce::File target;
+        if (const auto resolved = resolve (given, target); resolved.failed())
+            return resolved;
+
         if (target.isDirectory())
             return juce::Result::fail (target.getFullPathName() + " is a folder");
 
         if (! target.getParentDirectory().isDirectory())
             return juce::Result::fail ("no folder " + target.getParentDirectory().getFullPathName());
+
+        if (const auto writable = checkWritable (target); writable.failed())
+            return writable;
 
         const auto temporary = temporaryBeside (target);
 

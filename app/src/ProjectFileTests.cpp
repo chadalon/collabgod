@@ -94,6 +94,76 @@ namespace collabgod
             return std::all_of (body, end, [expected] (char c) { return c == expected; }) ? number : -1;
         }
 
+        /** A save through a link to a project lands in the file it names, and the link stays a link:
+            people keep projects in synced folders and link to them. */
+        void links (Results& results, const juce::File& folder)
+        {
+            const auto realFolder = folder.getChildFile ("synced");
+            const auto linkFolder = folder.getChildFile ("links");
+            realFolder.createDirectory();
+            linkFolder.createDirectory();
+            const auto real = realFolder.getChildFile ("song.collabgod");
+            const auto link = linkFolder.getChildFile ("song.collabgod");
+            writeFileAtomically (real, juce::String ("old"));
+
+            // Windows needs developer mode or an administrator to make one; CI's runners can.
+            if (! real.createSymbolicLink (link, true) || ! link.isSymbolicLink())
+            {
+                std::cout << "SKIP links: this user cannot make a symbolic link" << std::endl;
+                return;
+            }
+
+            results.expect (writeFileAtomically (link, juce::String ("new")).wasOk(), "a save through a link works");
+            results.expect (contentsOf (real) == "new", "a save through a link lands in the file it names");
+            results.expect (link.isSymbolicLink(), "and the link is still a link");
+            results.expect (temporariesBeside (real) == 0 && temporariesBeside (link) == 0, "and leaves no temporary file");
+
+            // A link to a link: followed to the end.
+            const auto second = linkFolder.getChildFile ("again.collabgod");
+            if (link.createSymbolicLink (second, true))
+            {
+                results.expect (writeFileAtomically (second, juce::String ("twice")).wasOk() && contentsOf (real) == "twice",
+                                "a save through a chain of links lands in the file at the end");
+                results.expect (second.isSymbolicLink() && link.isSymbolicLink(), "and every link stays a link");
+            }
+
+            // A link to nothing: refused, rather than making a file where the link was.
+            const auto nowhere = linkFolder.getChildFile ("gone.collabgod");
+            if (realFolder.getChildFile ("deleted.collabgod").createSymbolicLink (nowhere, true))
+            {
+                const auto refused = writeFileAtomically (nowhere, juce::String ("x"));
+                results.expect (refused.failed(), "a save through a link to nothing fails");
+                results.expect (nowhere.isSymbolicLink() && ! realFolder.getChildFile ("deleted.collabgod").exists(),
+                                "and changes nothing");
+            }
+        }
+
+        /** A file the person made read-only is not saved over, and saying so does not take long. */
+        void readOnlyFile (Results& results, const juce::File& folder)
+        {
+            const auto target = folder.getChildFile ("locked.collabgod");
+            writeFileAtomically (target, juce::String ("old"));
+            target.setReadOnly (true);
+
+            // Root may write to any file on POSIX, so check first. (Windows honours the attribute for everyone.)
+            if (target.hasWriteAccess())
+            {
+                std::cout << "SKIP a read-only file: this user can write to one anyway" << std::endl;
+                target.setReadOnly (false);
+                return;
+            }
+
+            const auto started = juce::Time::getMillisecondCounterHiRes();
+            const auto refused = writeFileAtomically (target, juce::String ("new"));
+            const auto took = juce::Time::getMillisecondCounterHiRes() - started;
+            target.setReadOnly (false);
+
+            results.expect (refused.failed(), "a save over a read-only file fails");
+            results.expect (contentsOf (target) == "old", "and leaves it whole");
+            results.expect (temporariesBeside (target) == 0, "and leaves no temporary file");
+            results.expect (took < 250.0, "and fails at once, not after the retries (" + juce::String (took, 0) + " ms)");
+        }
+
         void basics (Results& results, const juce::File& folder)
         {
             const auto target = folder.getChildFile ("song.collabgod");
@@ -121,6 +191,9 @@ namespace collabgod
             aFolder.createDirectory();
             results.expect (writeFileAtomically (aFolder, juce::String ("x")).failed() && aFolder.isDirectory(),
                             "a folder is never written over");
+
+            links (results, folder);
+            readOnlyFile (results, folder);
 
            #if ! JUCE_WINDOWS
             // A target that cannot be replaced: the write fails, and the old file is untouched.

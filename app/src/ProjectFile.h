@@ -18,6 +18,11 @@ namespace collabgod
         temporary file is removed and the target is untouched. A temporary file can be left
         behind only by a crash; it is named `.<target name>.<random>.tmp` and is never read.
 
+        A target that is a symbolic link is followed, through any chain, and the file it names is
+        replaced; the link stays a link. A link to nothing, or a file the person made read-only,
+        is refused at once. On POSIX the file keeps its permissions, but not its owner, ACLs or
+        extended attributes (macOS Finder tags); on Windows it takes the folder's ACLs.
+
         Project files and this install's sample location table are written this way. Never
         call it on the audio thread: it blocks on the disk. */
     juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size);

@@ -180,7 +180,13 @@ The app writes projects, and the sample location table, with `writeFileAtomicall
 3. It is renamed over the project in one step: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` elsewhere. On Linux and macOS the folder is then flushed as well. On Windows another program reading the project at that moment (a virus scanner, the search indexer) can make the rename fail with a sharing error, so it is tried again for up to a second.
 4. If anything fails before the rename, the temporary file is removed and the old project is untouched.
 
-A crash can leave a temporary file behind, which is never read. `CollabGod --project-file-test` checks all of this, including a writer killed at random moments while it saves, twenty times over.
+A few things about the file being replaced:
+
+- **A symbolic link is followed**, through any chain of links, and the file it names is saved; the link stays a link. Someone who links a project into a synced folder keeps it in sync. A link that points to nothing is refused, rather than a file being made where the link was. A linked *folder* needs nothing special.
+- **A read-only file is refused** on every system, at once. POSIX would let it be replaced, since that needs only the folder to be writable.
+- **What the new file keeps**: on Linux and macOS its permissions, but not its owner, its ACLs or its extended attributes, such as Finder tags on macOS. On Windows it takes the folder's permissions. This is usual for atomic saves.
+
+A crash can leave a temporary file behind, which is never read; removing old ones is #161. `CollabGod --project-file-test` checks all of this, including links and a writer killed at random moments while it saves, twenty times over.
 
 ## Reading
 
