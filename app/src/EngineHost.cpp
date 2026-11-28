@@ -508,14 +508,17 @@ namespace collabgod
     {
         auto* device = getDeviceManager().getCurrentAudioDevice();
         const auto name = device != nullptr ? device->getName() : juce::String();
+        const auto typeName = device != nullptr ? device->getTypeName() : juce::String();
         const auto rate = device != nullptr ? device->getCurrentSampleRate() : 0.0;
         const auto block = device != nullptr ? device->getCurrentBufferSizeSamples() : 0;
 
-        if (! deviceKnown || device != lastDevice || name != lastDeviceName || ! juce::exactlyEqual (rate, lastRate) || block != lastBlock)
+        if (! deviceKnown || device != lastDevice || name != lastDeviceName || typeName != lastTypeName
+            || ! juce::exactlyEqual (rate, lastRate) || block != lastBlock)
         {
             deviceKnown = true;
             lastDevice = device;
             lastDeviceName = name;
+            lastTypeName = typeName;
             lastRate = rate;
             lastBlock = block;
 

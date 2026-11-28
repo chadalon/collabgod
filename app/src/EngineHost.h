@@ -185,7 +185,7 @@ namespace collabgod
         // What was open at the last device change, to notice the device restarting.
         bool deviceKnown = false;
         juce::AudioIODevice* lastDevice = nullptr;
-        juce::String lastDeviceName;
+        juce::String lastDeviceName, lastTypeName; // the type too: a new device can reuse the old one's address
         double lastRate = 0.0;
         int lastBlock = 0;
 

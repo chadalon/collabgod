@@ -388,9 +388,11 @@ namespace collabgod
 
             auto s = f.host->choose ({ shared, "Simulated Output 1", 44100.0, 441, 0 });
             r.expect (s.state == AudioState::open && openType() == shared, "the device opens under the first type: " + openType());
+            r.expect (f.settle(), "and settles");
 
             // Same name, rate and block size: JUCE alone keeps the first type's device open.
             s = f.host->choose ({ exclusive, "Simulated Output 1", 44100.0, 441, 0 });
+            r.expect (! f.host->isSettled(), "a new type is a new device: settling starts again");
             r.expect (s.state == AudioState::open && s.type == exclusive && openType() == exclusive,
                       "choosing the same device under another type opens it under that type: " + openType());
             r.expect (f.other->findOpenDevice ("Simulated Output 1") != nullptr && f.type->findOpenDevice ("Simulated Output 1") == nullptr,
