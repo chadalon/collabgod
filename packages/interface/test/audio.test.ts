@@ -11,6 +11,7 @@ import {
   chooseType,
   currentChoice,
   formatAudio,
+  outputMoved,
   typeCandidates,
 } from '../src/audio';
 
@@ -39,15 +40,36 @@ describe('audioForm', () => {
     expect(form.bufferSize).toBe(0);
   });
 
-  it('keeps an unplugged chosen device in the list, marked, while the fallback is selected', () => {
+  it('in a fallback, shows the chosen device, marked unplugged, and locks rate and size', () => {
     const s = status({
       state: 'fallback',
       device: 'Speakers (Realtek(R) Audio)',
       chosen: { type: 'Windows Audio', device: 'Focusrite USB', sampleRate: 0, bufferSize: 0, audioThreads: 0 },
     });
     const form = audioForm({ types: [{ name: 'Windows Audio', devices: ['Speakers (Realtek(R) Audio)'] }], status: s });
-    expect(form.device).toBe('Speakers (Realtek(R) Audio)');
+    expect(form.device).toBe('Focusrite USB');
     expect(form.devices).toContainEqual({ value: 'Focusrite USB', label: 'Focusrite USB (unplugged)' });
+    expect(form.rateAndSizeLocked).toBe(true);
+    expect(audioForm(devices()).rateAndSizeLocked).toBe(false);
+  });
+
+  it('in a fallback under another driver type, still shows the chosen type and device', () => {
+    const s = status({
+      state: 'fallback',
+      type: 'Windows Audio',
+      device: 'Speakers (Realtek(R) Audio)',
+      chosen: { type: 'ASIO', device: 'Focusrite USB ASIO', sampleRate: 0, bufferSize: 256, audioThreads: 0 },
+    });
+    const form = audioForm({
+      types: [
+        { name: 'Windows Audio', devices: ['Speakers (Realtek(R) Audio)'] },
+        { name: 'ASIO', devices: ['Focusrite Thunderbolt ASIO'] },
+      ],
+      status: s,
+    });
+    expect(form.type).toBe('ASIO');
+    expect(form.device).toBe('Focusrite USB ASIO');
+    expect(form.devices).toContainEqual({ value: 'Focusrite USB ASIO', label: 'Focusrite USB ASIO (unplugged)' });
   });
 
   it('offers one audio thread per CPU, after the default', () => {
@@ -78,8 +100,14 @@ describe('changeChoice', () => {
   });
 
   it('starts from what is open', () => {
-    const s = status({ state: 'fallback', device: 'Speakers', chosen: { ...base } });
+    const s = status({ state: 'open', device: 'Speakers', chosen: { ...base, device: '' } });
     expect(currentChoice(s)).toEqual({ ...base, device: 'Speakers' });
+  });
+
+  it('in a fallback, starts from the chosen device, so a change of threads does not save the fallback', () => {
+    const s = status({ state: 'fallback', device: 'Speakers', chosen: { ...base } });
+    expect(currentChoice(s)).toEqual(base);
+    expect(changeChoice(currentChoice(s), 'audioThreads', '4')).toEqual({ ...base, audioThreads: 4 });
   });
 });
 
@@ -153,6 +181,16 @@ describe('choosing a driver type', () => {
     const s = await chooseType(onMachine, current, 'ASIO', choose);
     expect(asked).toHaveLength(3);
     expect(s).toMatchObject({ type: 'Windows Audio', device: focusrite, message: 'Cannot open Realtek ASIO' });
+  });
+});
+
+describe('outputMoved', () => {
+  it('only when what is open changed, so the panel rescans only then', () => {
+    expect(outputMoved(status(), status({ settled: false }))).toBe(false);
+    expect(outputMoved(status(), status({ message: 'x' }))).toBe(false);
+    expect(outputMoved(status(), status({ state: 'fallback' }))).toBe(true);
+    expect(outputMoved(status(), status({ device: 'Speakers' }))).toBe(true);
+    expect(outputMoved(status(), status({ type: 'ASIO' }))).toBe(true);
   });
 });
 

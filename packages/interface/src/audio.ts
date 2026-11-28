@@ -23,6 +23,8 @@ export interface Option<V> {
 
 /** What each control offers and which entry is selected. */
 export interface AudioForm {
+  /** Rate and block size cannot be changed: the chosen device is unplugged, and the lists are the fallback's. */
+  rateAndSizeLocked: boolean;
   types: Option<string>[];
   type: string;
   devices: Option<string>[];
@@ -38,14 +40,14 @@ export interface AudioForm {
 const blockMs = (samples: number, rate: number): string => (rate > 0 ? ` (${((1000 * samples) / rate).toFixed(1)} ms)` : '');
 
 /**
- * The form for what the app listed. It shows what is open, so a fallback device is visible
- * as such; the type and device the person chose stay in the lists even while unplugged.
+ * The form for what the app listed. It shows what is remembered: in a fallback that is the
+ * chosen type and device, marked unplugged, not the device playing in its place (the state line
+ * says that). Rate and block size are locked then, since the device offering them is not there.
  */
 export function audioForm(devices: AudioDevices): AudioForm {
   const { status } = devices;
   const chosen = status.chosen;
-  const type = status.type !== '' ? status.type : chosen.type;
-  const device = status.device !== '' ? status.device : chosen.device;
+  const { type, device } = currentChoice(status);
 
   const types: Option<string>[] = devices.types.map((t) => ({ value: t.name, label: t.name }));
   if (type !== '' && !types.some((t) => t.value === type)) types.push({ value: type, label: `${type} (not on this machine)` });
@@ -70,6 +72,7 @@ export function audioForm(devices: AudioDevices): AudioForm {
   for (let n = 1; n <= Math.max(1, status.cpus); n++) audioThreads.push({ value: n, label: n === 1 ? '1 (no worker threads)' : String(n) });
 
   return {
+    rateAndSizeLocked: status.state === 'fallback',
     types,
     type,
     devices: deviceOptions,
@@ -143,8 +146,14 @@ export async function chooseType(
   return status;
 }
 
-/** The choice as the form shows it: what is open, with the person's own rate, size and threads. */
+/**
+ * The choice as the form shows it, which a change starts from. In a fallback it is the
+ * remembered choice: built from the device playing in its place, a change of threads, say,
+ * would save that device over the chosen one, which would then never come back. Otherwise it is
+ * what is open (the device a type-only choice opened), with the person's rate, size and threads.
+ */
 export function currentChoice(status: AudioStatus): AudioChoice {
+  if (status.state === 'fallback') return { ...status.chosen };
   return {
     type: status.type !== '' ? status.type : status.chosen.type,
     device: status.device !== '' ? status.device : status.chosen.device,
@@ -152,6 +161,11 @@ export function currentChoice(status: AudioStatus): AudioChoice {
     bufferSize: status.chosen.bufferSize,
     audioThreads: status.chosen.audioThreads,
   };
+}
+
+/** Whether what is open changed, so the device lists may have too. */
+export function outputMoved(before: AudioStatus, after: AudioStatus): boolean {
+  return before.state !== after.state || before.type !== after.type || before.device !== after.device;
 }
 
 /** One line for the diagnostics panel. `lateCallbacks` is the latest frame's, which is newer than the status's. */
@@ -213,8 +227,12 @@ export class AudioPanel {
     // refusal on the way. The change itself shows where it ended, so a refusal it got past
     // (ASIO's default driver, when another one opens) does not flash up.
     if (this.busy) return;
+    const before = this.devices.status;
     this.devices = { ...this.devices, status };
-    if (!this.hidden) void this.refresh();
+    if (this.hidden) return;
+    // A device came or went only if what is open changed; the engine settling, say, needs no rescan.
+    if (outputMoved(before, status)) void this.refresh();
+    else this.render();
   }
 
   private async change(field: keyof AudioChoice, value: string): Promise<void> {
@@ -241,10 +259,17 @@ export class AudioPanel {
     const { status } = this.devices;
     const doc = this.root.ownerDocument;
 
-    const row = <V extends string | number>(label: string, field: keyof AudioChoice, options: Option<V>[], selected: V): HTMLElement => {
+    const row = <V extends string | number>(
+      label: string,
+      field: keyof AudioChoice,
+      options: Option<V>[],
+      selected: V,
+      disabled = false,
+    ): HTMLElement => {
       const wrapper = doc.createElement('label');
       wrapper.textContent = label;
       const select = doc.createElement('select');
+      select.disabled = disabled;
       for (const o of options) {
         const option = doc.createElement('option');
         option.value = String(o.value);
@@ -281,8 +306,8 @@ export class AudioPanel {
       heading,
       row('Driver', 'type', form.types, form.type),
       row('Output', 'device', form.devices, form.device),
-      row('Sample rate', 'sampleRate', form.sampleRates, form.sampleRate),
-      row('Block size', 'bufferSize', form.bufferSizes, form.bufferSize),
+      row('Sample rate', 'sampleRate', form.sampleRates, form.sampleRate, form.rateAndSizeLocked),
+      row('Block size', 'bufferSize', form.bufferSizes, form.bufferSize, form.rateAndSizeLocked),
       row('Audio threads', 'audioThreads', form.audioThreads, form.threads),
       state,
       message,
