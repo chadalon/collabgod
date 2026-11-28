@@ -16,7 +16,7 @@ Every value is checked against the contract where it arrives, on both sides: the
 
 ## The messages
 
-The contract file is the reference: each message has a doc comment and an example. Contract version 1:
+The contract file is the reference: each message has a doc comment and an example. Contract version 2:
 
 | Message | Kind | Takes | Gives |
 | --- | --- | --- | --- |
@@ -24,10 +24,13 @@ The contract file is the reference: each message has a doc comment and an exampl
 | `ping` | function | `PingParams` | `PingResult`: the bridge round trip on its own |
 | `pullFrame` | function | nothing | `Frame`, built now |
 | `setFrameDelivery` | function | `FrameDeliverySetting` | the delivery now in use, push or pull ([ADR-0016](../../docs/adr/0016-frame-delivery.md)) |
+| `audioDevices` | function | nothing | `AudioDevices`: every driver type and its output devices, scanned now, and the `AudioStatus` |
+| `chooseAudioOutput` | function | `AudioChoice` | `AudioStatus` after opening it; the app remembers it. If it will not open, what was open stays open and `message` says why ([ADR-0018](../../docs/adr/0018-audio-output.md)) |
 | `log` | function | `LogParams` | nothing; written to the app's log |
 | `reportDiagnostics` | function | `Diagnostics` | nothing; the app keeps the latest and logs it |
 | `selfCheckDone` | function | `SelfCheckReport` | nothing; ends `--bridge-check` |
-| `frame` | event | | `Frame`, on every display refresh while delivery is push |
+| `frame` | event | | `Frame`, on every display refresh while delivery is push. Carries the late audio callback count |
+| `audioChanged` | event | | `AudioStatus`, when the output changes: chosen, unplugged, back, or the engine settled |
 | `probe` | command | `ProbeCommand` | nothing; the next frame's `lastProbe` shows it was carried out |
 
 ## Changing the contract

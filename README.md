@@ -58,7 +58,7 @@ The first `npm run build` downloads JUCE and Tracktion Engine (about 250 MB) and
 | `npm run build:app`, `npm run test:app` | Only the C++ app (and the two packages it is built from) |
 | `npm run build -- --config Debug` | A Debug build (`Release` is the default). Test it with `npm test -- --config Debug` |
 
-The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Release/CollabGod.exe`; on macOS, `build/app/collabgod_artefacts/Release/CollabGod.app`. **Ctrl+Shift+D** (**Cmd+Shift+D** on a Mac) shows its diagnostics. To work on the interface with a page that reloads on every save, see [`packages/interface`](packages/interface/README.md).
+The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Release/CollabGod.exe`; on macOS, `build/app/collabgod_artefacts/Release/CollabGod.app`. **Ctrl+Shift+D** (**Cmd+Shift+D** on a Mac) shows its diagnostics, and **Ctrl+,** (**Cmd+,**) or the Audio button its audio settings: driver type, output device, sample rate, block size and audio threads, remembered between runs. `--list-audio-devices` prints what this machine offers. To work on the interface with a page that reloads on every save, see [`packages/interface`](packages/interface/README.md).
 
 ### Layout
 

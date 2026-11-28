@@ -26,17 +26,25 @@ juce_add_gui_app(collabgod
     NEEDS_WEB_BROWSER TRUE
     # Windows: use WebView2 (Edge), never JUCE's Internet Explorer default (ADR-0002).
     NEEDS_WEBVIEW2 TRUE
+    # The app opens outputs only (#27), so macOS should never ask. The text stays because an
+    # app that touches an input without it is ended by macOS rather than asked about.
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "CollabGod opens your audio device, which may include inputs.")
+    MICROPHONE_PERMISSION_TEXT "CollabGod does not record yet and should not need the microphone. If you see this, please report it.")
 
 juce_generate_juce_header(collabgod)
 
 target_sources(collabgod PRIVATE
+    src/AudioSettings.cpp
+    src/AudioSettings.h
+    src/AudioTests.cpp
+    src/AudioTests.h
     src/BridgeCodec.h
     src/BridgeHost.cpp
     src/BridgeHost.h
     src/BridgeTests.cpp
     src/BridgeTests.h
+    src/EngineHost.cpp
+    src/EngineHost.h
     src/Log.cpp
     src/Log.h
     src/Main.cpp
@@ -44,6 +52,8 @@ target_sources(collabgod PRIVATE
     src/ProjectFile.h
     src/ProjectFileTests.cpp
     src/ProjectFileTests.h
+    src/SimulatedAudio.cpp
+    src/SimulatedAudio.h
     src/SmokeTest.cpp
     src/SmokeTest.h
     src/UiFiles.cpp
@@ -101,6 +111,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 if(WIN32)
+    # ASIO, from the ASIO SDK headers JUCE bundles under the GPLv3 (THIRD_PARTY.md), so there is
+    # nothing to download. WASAPI is on by default.
+    target_compile_definitions(collabgod PRIVATE JUCE_ASIO=1)
+
     # SetWindowSubclass, for the window's background while it resizes (WebViewBackground.cpp).
     target_link_libraries(collabgod PRIVATE comctl32)
 endif()
@@ -139,7 +153,8 @@ add_dependencies(collabgod_ui collabgod)
 #   Tracktion's HostedAudioDeviceInterface, with the test calling the audio
 #   callback block by block (`engine_spike live-check` in
 #   spikes/engine-toolchain, and spikes/engine-projection). Never the machine's
-#   default device. The app's own comes with audio device selection (#27).
+#   default device. The app's own is SimulatedAudioDeviceType (src/SimulatedAudio.h),
+#   a driver type whose devices can also be unplugged (`--audio-test`).
 # - A test that measures frame rate or drawing speed is informational in CI,
 #   never a pass or fail: the runners draw in software and failed a benchmark
 #   that both real machines passed (webview-ui findings). Give it a ctest label
@@ -161,6 +176,12 @@ set_tests_properties(app_smoke_test PROPERTIES TIMEOUT 120)
 # generated codec and dispatch, and the real BridgeHost. No window.
 add_test(NAME app_bridge_contract COMMAND collabgod --bridge-test)
 set_tests_properties(app_bridge_contract PROPERTIES TIMEOUT 60)
+
+# Audio output (#27) on simulated sound cards, never the machine's own: outputs only, choosing
+# and remembering a device, sound once the engine settles, late callbacks, exclusive mode's
+# block size, audio threads, and devices unplugged and plugged in again, also while playing.
+add_test(NAME app_audio COMMAND collabgod --audio-test)
+set_tests_properties(app_audio PROPERTIES TIMEOUT 180)
 
 # Atomic saves (#25): writing, replacing, failing without touching the old file, and a
 # second copy of the app killed again and again while it saves. No window.

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "BridgeHost.h"
+#include "EngineHost.h"
 #include "Log.h"
+
+#include <limits>
 
 namespace collabgod
 {
@@ -15,6 +18,66 @@ namespace collabgod
        #else
         return bridge::WebView::WebKitGTK;
        #endif
+    }
+
+    namespace
+    {
+        bridge::AudioChoice choiceToBridge (const AudioChoice& c)
+        {
+            return { c.type, c.device, c.sampleRate, c.bufferSize, c.audioThreads };
+        }
+
+        AudioChoice fromBridge (const bridge::AudioChoice& c)
+        {
+            // Outside int's range is outside any device's, and is read as "the default".
+            const auto toInt = [] (juce::int64 v) { return v > 0 && v <= std::numeric_limits<int>::max() ? static_cast<int> (v) : 0; };
+            return { c.type, c.device, c.sampleRate, toInt (c.bufferSize), toInt (c.audioThreads) };
+        }
+
+        bridge::AudioState stateToBridge (AudioState state)
+        {
+            switch (state)
+            {
+                case AudioState::open:     return bridge::AudioState::open;
+                case AudioState::fallback: return bridge::AudioState::fallback;
+                case AudioState::none:     return bridge::AudioState::none;
+            }
+            return bridge::AudioState::none;
+        }
+    }
+
+    bridge::AudioStatus toBridge (const AudioStatus& s)
+    {
+        bridge::AudioStatus out;
+        out.state = stateToBridge (s.state);
+        out.type = s.type;
+        out.device = s.device;
+        out.sampleRate = s.sampleRate;
+        out.bufferSize = s.bufferSize;
+        out.outputLatencyMs = s.outputLatencyMs;
+        for (const auto rate : s.sampleRates)
+            out.sampleRates.push_back (rate);
+        for (const auto size : s.bufferSizes)
+            out.bufferSizes.push_back (size);
+        out.chosen = choiceToBridge (s.chosen);
+        out.audioThreads = s.audioThreads;
+        out.cpus = s.cpus;
+        out.settled = s.settled;
+        out.lateCallbacks = s.lateCallbacks;
+        out.deviceDropouts = s.deviceDropouts;
+        out.message = s.message;
+        return out;
+    }
+
+    namespace
+    {
+        /** What the page is told when the app has no audio engine (the contract tests). */
+        bridge::AudioStatus noEngine()
+        {
+            AudioStatus s;
+            s.message = "The app was started without an audio engine";
+            return collabgod::toBridge (s);
+        }
     }
 
     BridgeHost::BridgeHost (HostSettings s)
@@ -59,13 +122,70 @@ namespace collabgod
         return { params.sentAtMs, hostTimeMs() };
     }
 
+    BridgeHost::~BridgeHost()
+    {
+        setEngine (nullptr);
+    }
+
+    void BridgeHost::setEngine (EngineHost* e)
+    {
+        if (engine != nullptr)
+            engine->onStatusChanged = nullptr;
+
+        engine = e;
+
+        if (engine != nullptr)
+        {
+            engine->onStatusChanged = [this] (const AudioStatus& status)
+            {
+                if (pageReady && onAudioChanged != nullptr)
+                    onAudioChanged (toBridge (status));
+            };
+        }
+    }
+
     bridge::Frame BridgeHost::buildFrame()
     {
         bridge::Frame frame;
         frame.seq = seq++;
         frame.hostTimeMs = hostTimeMs();
         frame.lastProbe = lastProbe;
+        frame.lateCallbacks = engine != nullptr ? engine->lateCallbacks() : 0;
         return frame;
+    }
+
+    bridge::AudioDevices BridgeHost::audioDevices()
+    {
+        count ("audioDevices");
+        bridge::AudioDevices devices;
+
+        if (engine == nullptr)
+        {
+            devices.status = noEngine();
+            return devices;
+        }
+
+        for (const auto& type : engine->deviceTypes (true))
+        {
+            bridge::AudioDeviceType t;
+            t.name = type.name;
+            for (const auto& name : type.devices)
+                t.devices.push_back (name);
+            devices.types.push_back (std::move (t));
+        }
+
+        devices.status = toBridge (engine->status());
+        return devices;
+    }
+
+    bridge::AudioStatus BridgeHost::chooseAudioOutput (const bridge::AudioChoice& choice)
+    {
+        count ("chooseAudioOutput");
+
+        if (engine == nullptr)
+            return noEngine();
+
+        return toBridge (engine->choose (fromBridge (choice)));
     }
 
     bridge::Frame BridgeHost::pullFrame()

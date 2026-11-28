@@ -2,7 +2,7 @@
 
 The app's interface: TypeScript running in JUCE's web view (WebView2 on Windows, WKWebView on macOS), with the timeline drawn on a GPU canvas (ADR-0002). It talks to the app only through [`@collabgod/bridge`](../bridge).
 
-For now it is the app shell (#26): it connects to the app, keeps engine frames coming, draws a placeholder and shows the diagnostics panel. The design system comes with #33 and the timeline with #31.
+For now it is the app shell (#26): it connects to the app, keeps engine frames coming, draws a placeholder and shows the diagnostics panel and the audio settings (#27). The design system comes with #33 and the timeline with #31.
 
 | Command | What it does |
 | --- | --- |
@@ -33,7 +33,12 @@ A Release build serves the copy beside it, so it runs without the source tree.
 - the bridge round trip (a ping to the app and back, once a second),
 - how engine frames arrive, push or pull, and how many drawn frames had no new engine frame (**P** switches, to compare them; ADR-0016),
 - how long a command takes to show in a frame,
-- the engine commands sent, and in how many batches.
+- the engine commands sent, and in how many batches,
+- the audio output: device, rate, block size, audio threads, whether the engine has settled, late audio callbacks (timed by the app itself, since CoreAudio counts none) and the dropouts the driver reports, if it counts them.
+
+## Audio settings
+
+**Ctrl+,** (**Cmd+,** on a Mac), or the Audio button, opens the audio settings (`src/audio.ts`): driver type, output device, sample rate, block size and audio threads. Every change is sent to the app at once with `chooseAudioOutput`; the app opens it, remembers it in its settings file, and answers with what is open. Picking a driver type always names a device: the one open now if that type has it, otherwise the type's devices in turn until one opens, since a type's default can be a driver with no hardware behind it. If the chosen device is unplugged the app plays through another one and sends `audioChanged`, and the panel goes on showing the chosen type and device, marked unplugged, with rate and block size locked, until it is back. A change made meanwhile (audio threads, say) starts from that choice, never from the fallback ([ADR-0018](../../docs/adr/0018-audio-output.md)). Plain HTML until the design system (#33) restyles it.
 
 The page also sends these to the app every 30 seconds, which writes them to its log: `~/Library/Logs/CollabGod/CollabGod.log` on macOS, `%APPDATA%\CollabGod\CollabGod.log` on Windows.
 

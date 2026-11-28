@@ -17,10 +17,36 @@ namespace collabgod
             bool autoInitialiseDeviceManager() override { return false; }
         };
 
+        /** Tracktion's settings in a folder of the test's own. Its default is Settings.xml in
+            the app's data folder, which on Windows and macOS is the same file as the app's own
+            settings.xml, so every test run wrote Tracktion's keys into a person's settings. */
+        struct TemporaryStorage : te::PropertyStorage
+        {
+            explicit TemporaryStorage (const juce::File& f) : te::PropertyStorage ("CollabGod"), folder (f) {}
+            juce::File getAppPrefsFolder() override { return folder; }
+
+            const juce::File folder;
+        };
+
         bool expect (bool condition, const juce::String& what)
         {
             std::cout << (condition ? "PASS " : "FAIL ") << what << std::endl;
             return condition;
+        }
+
+        bool runChecks (te::Engine& engine)
+        {
+            auto edit = te::Edit::createSingleTrackEdit (engine, te::Edit::forEditing);
+            bool ok = expect (edit != nullptr, "an edit was created");
+
+            if (edit != nullptr)
+            {
+                edit->ensureNumberOfAudioTracks (2);
+                ok = expect (te::getAudioTracks (*edit).size() == 2, "the edit holds two audio tracks") && ok;
+                ok = expect (! edit->getTransport().isPlaying(), "the transport starts stopped") && ok;
+            }
+
+            return ok;
         }
     }
 
@@ -35,19 +61,17 @@ namespace collabgod
     {
         std::cout << versionLine() << std::endl;
 
-        te::Engine engine ("CollabGod", nullptr, std::make_unique<HeadlessBehaviour>());
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                .getNonexistentChildFile ("collabgod-smoke-test", {}, false);
+        folder.createDirectory();
 
-        auto edit = te::Edit::createSingleTrackEdit (engine, te::Edit::forEditing);
-        bool ok = expect (edit != nullptr, "an edit was created");
-
-        if (edit != nullptr)
+        bool ok = false;
         {
-            edit->ensureNumberOfAudioTracks (2);
-            ok = expect (te::getAudioTracks (*edit).size() == 2, "the edit holds two audio tracks") && ok;
-            ok = expect (! edit->getTransport().isPlaying(), "the transport starts stopped") && ok;
+            te::Engine engine (std::make_unique<TemporaryStorage> (folder), nullptr, std::make_unique<HeadlessBehaviour>());
+            ok = runChecks (engine);
         }
 
-        edit.reset();
+        folder.deleteRecursively();
         std::cout << (ok ? "Smoke test passed" : "Smoke test FAILED") << std::endl;
         return ok ? 0 : 1;
     }

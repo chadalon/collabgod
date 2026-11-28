@@ -11,7 +11,9 @@
 
 #include "BridgeContractExamples.h"
 #include "BridgeHost.h"
+#include "EngineHost.h"
 #include "Log.h"
+#include "SimulatedAudio.h"
 #include "UiFiles.h"
 
 #include <iostream>
@@ -253,6 +255,64 @@ namespace collabgod
             r.expect (reported && ! passed, "the self-check fails on the app's side when the page has not used every message");
         }
 
+        /** The audio functions and event on a real engine, with simulated sound cards. */
+        void testAudio (Results& r)
+        {
+            const auto folder = juce::File::createTempFile ("collabgod-bridge-audio");
+
+            {
+                EngineHost::Options options;
+                options.settingsFolder = folder;
+                options.systemDevices = false;
+                options.extraTypes.push_back (std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::manual));
+                options.pollOnTimer = false;
+                EngineHost engine (std::move (options));
+
+                BridgeHost host ({});
+                host.setEngine (&engine);
+                std::vector<bridge::AudioStatus> events;
+                host.onAudioChanged = [&] (const bridge::AudioStatus& s) { events.push_back (s); };
+
+                const auto listed = bridge::dispatch (host, "audioDevices", {});
+                bridge::AudioDevices devices;
+                juce::String error;
+                r.expect (static_cast<bool> (listed["ok"]) && bridge::read (listed["result"], devices, "result", error),
+                          "audioDevices answers: " + error);
+                r.expect (devices.types.size() == 1 && devices.types[0].name == SimulatedAudioDeviceType::typeName
+                              && devices.types[0].devices.size() == 2,
+                          "it lists the driver types and their devices");
+                r.expect (devices.status.state == bridge::AudioState::open && devices.status.device == "Simulated Output 1",
+                          "and what is open");
+
+                engine.choose ({ SimulatedAudioDeviceType::typeName, "Simulated Output 1", 0.0, 0, 0 });
+                r.expect (events.empty(), "nothing is sent before the page has said hello");
+
+                host.hello();
+                const auto chosen = bridge::dispatch (host, "chooseAudioOutput", { juce::JSON::parse (
+                    R"({"type":"Simulated","device":"Simulated Output 2","sampleRate":48000,"bufferSize":256,"audioThreads":0})") });
+                bridge::AudioStatus status;
+                r.expect (static_cast<bool> (chosen["ok"]) && bridge::read (chosen["result"], status, "result", error),
+                          "chooseAudioOutput answers: " + error);
+                r.expect (status.state == bridge::AudioState::open && status.device == "Simulated Output 2" && status.bufferSize == 256
+                              && juce::exactlyEqual (status.sampleRate, 48000.0) && status.chosen.device == "Simulated Output 2",
+                          "it opens the choice and says so");
+                r.expect (! events.empty() && events.back().device == "Simulated Output 2", "and the page is sent audioChanged");
+
+                const auto refused = bridge::dispatch (host, "chooseAudioOutput", { juce::JSON::parse (
+                    R"({"type":"No Such Driver","device":"","sampleRate":0,"bufferSize":0,"audioThreads":0})") });
+                r.expect (static_cast<bool> (refused["ok"]) && refused["result"]["message"].toString().contains ("No Such Driver")
+                              && refused["result"]["device"].toString() == "Simulated Output 2",
+                          "a choice that cannot open answers with why, and what is still open");
+
+                r.expect (host.buildFrame().lateCallbacks == 0, "frames carry the late callback count");
+                host.setEngine (nullptr);
+                r.expect (bridge::dispatch (host, "audioDevices", {})["result"]["status"]["state"].toString() == "none",
+                          "without an engine there is no output");
+            }
+
+            folder.deleteRecursively();
+        }
+
         void testCodec (Results& r)
         {
             juce::int64 i = 0;
@@ -267,7 +327,7 @@ namespace collabgod
             r.expect (bridge::write (std::numeric_limits<double>::infinity()).isVoid(), "infinity is written as null, which the page refuses");
 
             bridge::Frame frame;
-            r.expect (! bridge::read (juce::JSON::parse (R"({"seq":1,"hostTimeMs":2,"lastProbe":-1,"extra":0})"), frame, "frame", error)
+            r.expect (! bridge::read (juce::JSON::parse (R"({"seq":1,"hostTimeMs":2,"lastProbe":-1,"lateCallbacks":0,"extra":0})"), frame, "frame", error)
                           && error == "frame.extra is not a field of Frame",
                       "an unknown field is refused by name: " + error);
 
@@ -310,6 +370,7 @@ namespace collabgod
         testDispatch (r);
         testCommands (r);
         testHost (r);
+        testAudio (r);
         testCodec (r);
         testUiFiles (r);
 

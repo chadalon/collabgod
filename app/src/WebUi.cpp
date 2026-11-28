@@ -24,6 +24,8 @@ namespace collabgod
         addAndMakeVisible (*browser);
         browser->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
 
+        host.onAudioChanged = [this] (const bridge::AudioStatus& status) { bridge::emitAudioChanged (*browser, status); };
+
         // Frames are pushed in step with the display, not on a timer (webview-ui finding 6).
         vblank = std::make_unique<juce::VBlankAttachment> (this, [this] { displayRefreshed(); });
 
@@ -37,6 +39,7 @@ namespace collabgod
 
     WebUi::~WebUi()
     {
+        host.onAudioChanged = nullptr;
         stopTimer();
         vblank.reset();
     }

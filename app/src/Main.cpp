@@ -6,10 +6,13 @@
 
 #include <JuceHeader.h>
 
+#include "AudioTests.h"
 #include "BridgeHost.h"
 #include "BridgeTests.h"
+#include "EngineHost.h"
 #include "Log.h"
 #include "ProjectFileTests.h"
+#include "SimulatedAudio.h"
 #include "SmokeTest.h"
 #include "WebUi.h"
 #include "WebViewBackground.h"
@@ -28,9 +31,15 @@ namespace collabgod
                    "  --ui-dir <folder>            Serve the interface from this folder, and reload it when it changes\n"
                    "  --frame-delivery push|pull   How engine frames reach the page (default pull; ADR-0016)\n"
                    "  --diagnostics                Open the diagnostics panel at start (Ctrl+Shift+D or Cmd+Shift+D toggles it)\n"
+                   "  --audio-threads <n>          Use n CPUs for audio, the audio thread included, without remembering it\n"
+                   "                               (default: what was chosen in the audio settings, or 1 until #113)\n"
+                   "  --simulated-audio            Play to simulated sound cards instead of this machine's, with settings in a\n"
+                   "                               temporary folder, so nothing chosen is remembered (--bridge-check does this)\n"
+                   "  --list-audio-devices         Print every driver type and its output devices, open none, and quit\n"
                    "  --bridge-check               Open the window, run the bridge self-check in the page, close the\n"
                    "                               window and exit: 0 if every message crossed the bridge both ways\n"
                    "  --bridge-test                Run the bridge contract tests without a window\n"
+                   "  --audio-test                 Run the audio output tests on simulated sound cards, without a window\n"
                    "  --project-file-test          Run the atomic save tests, crashes included, without a window\n"
                    "  --smoke-test                 Check the linked engine without a window or audio device\n"
                    "  --version                    Print the version and quit\n";
@@ -57,6 +66,23 @@ namespace collabgod
         juce::File sourceUiFolder()
         {
             return juce::File (COLLABGOD_SOURCE_UI_DIR);
+        }
+
+        /** --list-audio-devices: what the audio settings would offer, without opening a device. */
+        int listAudioDevices()
+        {
+            juce::AudioDeviceManager manager;
+            for (auto* type : manager.getAvailableDeviceTypes())
+            {
+                type->scanForDevices();
+                const auto names = type->getDeviceNames (false);
+                const auto defaultIndex = type->getDefaultDeviceIndex (false);
+                std::cout << type->getTypeName() << ": " << names.size() << " output device" << (names.size() == 1 ? "" : "s") << "\n";
+                for (int i = 0; i < names.size(); ++i)
+                    std::cout << "  " << names[i] << (i == defaultIndex ? "  (default)" : "") << "\n";
+            }
+            std::cout << std::flush;
+            return 0;
         }
 
        #if COLLABGOD_DEVELOPMENT
@@ -133,6 +159,18 @@ namespace collabgod
                 return;
             }
 
+            if (args.contains ("--list-audio-devices"))
+            {
+                quitWith (listAudioDevices());
+                return;
+            }
+
+            if (args.contains ("--audio-test"))
+            {
+                quitWith (runAudioTests());
+                return;
+            }
+
             if (args.contains ("--project-file-test"))
             {
                 quitWith (runProjectFileTests());
@@ -185,7 +223,31 @@ namespace collabgod
 
             log ("Serving the interface from " + uiSettings.folder.getFullPathName());
 
+            EngineHost::Options audio;
+            audio.audioThreadsOverride = valueAfter (args, "--audio-threads").getIntValue();
+            if (args.contains ("--audio-threads") && audio.audioThreadsOverride < 1)
+            {
+                std::cout << "--audio-threads takes a whole number of 1 or more\n" << usage();
+                quitWith (2);
+                return;
+            }
+
+            // The bridge check must not depend on a sound card (CI has none) or change what a
+            // person chose on their own machine.
+            if (args.contains ("--simulated-audio") || hostSettings.selfCheck)
+            {
+                simulatedSettings = std::make_unique<juce::TemporaryFile> ("collabgod-simulated-audio");
+                audio.settingsFolder = simulatedSettings->getFile();
+                audio.systemDevices = false;
+                audio.extraTypes.push_back (std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::realTime));
+                log ("Simulated audio: no sound card is used, and nothing chosen is remembered");
+            }
+
+            engine = std::make_unique<EngineHost> (std::move (audio));
+            log ("Settings: " + engine->getSettings().getFile().getFullPathName());
+
             host = std::make_unique<BridgeHost> (hostSettings);
+            host->setEngine (engine.get());
 
             if (hostSettings.selfCheck)
                 startBridgeCheck();
@@ -209,6 +271,10 @@ namespace collabgod
 
             mainWindow.reset();
             host.reset();
+            engine.reset();
+            if (simulatedSettings != nullptr)
+                simulatedSettings->getFile().deleteRecursively();
+            simulatedSettings.reset();
             log ("Quit");
             stopLog();
         }
@@ -249,6 +315,8 @@ namespace collabgod
             quit();
         }
 
+        std::unique_ptr<juce::TemporaryFile> simulatedSettings;
+        std::unique_ptr<EngineHost> engine;
         std::unique_ptr<BridgeHost> host;
         std::unique_ptr<MainWindow> mainWindow;
     };
