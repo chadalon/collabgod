@@ -655,10 +655,28 @@ namespace collabgod
             return;
         lastFallbackAttempt = key;
 
-        // The default device of the first driver type that has one, outputs only.
-        if (open ({}).isEmpty())
-            if (auto* device = getDeviceManager().getCurrentAudioDevice())
+        // The default device of the first driver type whose default opens, outputs only. Not
+        // JUCE's default alone: that is the current type's, and when an ASIO interface is pulled
+        // out the current type is ASIO, whose default may be a driver with nothing behind it.
+        juce::StringArray typeNames;
+        for (auto* type : getDeviceManager().getAvailableDeviceTypes())
+            typeNames.add (type->getTypeName());
+
+        const auto want = effectiveChoice (chosen);
+        for (const auto& typeName : typeNames)
+        {
+            // The chosen device is the one that would not open; reopenChosenIfBack tries it.
+            const auto candidate = effectiveChoice ({ typeName, {}, 0.0, 0, 0 });
+            if (candidate.device.isEmpty() || (candidate.type == want.type && candidate.device == want.device))
+                continue;
+
+            if (open (candidate).isEmpty() && getDeviceManager().getCurrentAudioDevice() != nullptr)
+            {
+                auto* device = getDeviceManager().getCurrentAudioDevice();
                 log ("Falling back to " + describe (device->getTypeName(), device->getName()));
+                return;
+            }
+        }
     }
 
     void EngineHost::useSafeExclusiveBlockSize()

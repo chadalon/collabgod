@@ -554,6 +554,29 @@ namespace collabgod
                                               && f.openDevice()->blocksRendered() > 10; }, 3000),
                       "and plays");
         }
+
+        void testFallbackToAnotherType (Results& r)
+        {
+            // As on Chad's desktop: ASIO's default device is the chosen one, which has gone, so
+            // the fallback has to come from another driver type (Windows Audio).
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            const juce::String asio = SimulatedAudioDeviceType::typeName, windows = "Simulated Other";
+            Fixture f (temp.folder, SimulatedAudioDeviceType::Clock::realTime, asio, 441, 0, windows);
+            const AudioChoice wanted { asio, "Simulated Output 1", 0.0, 0, 0 };
+            f.host->choose (wanted);
+            r.expect (f.settle(), "settled on the chosen device, its type's default");
+
+            f.type->unplugListed ("Simulated Output 1");
+            r.expect (pumpUntil ([&] { return f.host->status().state == AudioState::fallback; }, 8000),
+                      "it falls back: " + f.host->status().message);
+            r.expect (f.host->status().type == windows && f.other->findOpenDevice ("Simulated Output 1") != nullptr,
+                      "to another type's default, its own being the device that has gone: " + f.host->status().type);
+
+            f.type->plugInListed ("Simulated Output 1");
+            r.expect (pumpUntil ([&] { return f.host->status().state == AudioState::open && f.host->status().type == asio; }, 8000),
+                      "and goes back when it is there again: " + f.host->status().message);
+        }
     }
 
     int runAudioTests()
@@ -571,6 +594,7 @@ namespace collabgod
         testRemovalWhilePlaying (r);
         testStalledDevice (r);
         testGoneButListed (r);
+        testFallbackToAnotherType (r);
 
         std::cout << r.passed << " passed, " << r.failed << " failed" << std::endl;
         return r.failed == 0 ? 0 : 1;
