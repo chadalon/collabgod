@@ -149,6 +149,10 @@ namespace collabgod
         static constexpr double rescanWhileMissingMs = 2000.0;
         /** An open device that has not called back for this long has stalled. */
         static constexpr double stallMs = 2000.0;
+        /** A chosen device its driver still lists but that will not open (an ASIO driver's,
+            with the interface unplugged) is tried again this often. Each try can hold the
+            message thread for as long as the driver takes to refuse, about a second for ASIO. */
+        static constexpr double retryListedMs = 5000.0;
 
     private:
         class Behaviour;
@@ -164,6 +168,7 @@ namespace collabgod
         void deviceChanged();
         void reopenChosenIfBack();
         void openSomethingIfNone();
+        bool opensOnItsOwn (const AudioChoice&);
         void useSafeExclusiveBlockSize();
         void startSettling();
         void updateDropouts();
@@ -193,6 +198,10 @@ namespace collabgod
         // is not tried again until something is plugged in or out.
         juce::String lastReconnectAttempt, lastFallbackAttempt;
         bool reopening = false;
+        // The chosen device is listed but would not open: the list will not say when it can,
+        // so it is tried again every retryListedMs.
+        bool chosenWontOpen = false;
+        double lastListedRetry = -retryListedMs;
 
         // Rescanning while the chosen device is missing, and noticing a device that stopped.
         const bool watchForStalls;

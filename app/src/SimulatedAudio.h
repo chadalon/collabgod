@@ -62,6 +62,13 @@ namespace collabgod
         /** The device is back in the list, and the device manager is told. */
         void plugIn (const juce::String& name);
 
+        /** Pulled out the way an ASIO driver sees it: the device stays listed and nobody is
+            told, but an open one stops calling back and it will not open again until
+            `plugInListed`, which tells nobody either. */
+        void unplugListed (const juce::String& name);
+        void plugInListed (const juce::String& name);
+        bool isGoneButListed (const juce::String& name) const;
+
         /** The open device with this name, or nullptr. */
         SimulatedAudioDevice* findOpenDevice (const juce::String& name) const;
 
@@ -77,7 +84,7 @@ namespace collabgod
 
         const Clock clock;
         const int defaultBlock;
-        juce::StringArray present;
+        juce::StringArray present, goneButListed;
         juce::Array<SimulatedAudioDevice*> open;
         mutable juce::CriticalSection openLock;
 

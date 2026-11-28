@@ -505,13 +505,54 @@ namespace collabgod
                 return;
             device->freeze (true);
 
-            r.expect (pumpUntil ([&] { return f.host->status().message.contains ("stopped playing"); }, 5000),
-                      "a device that stops calling back is noticed: " + f.host->status().message);
+            // Stalled after 2 s, reopened at the next check, at most 2 s later. A new device can
+            // reuse the old one's address; the frozen one's block count no longer moves.
+            const auto frozenAt = device->blocksRendered();
+            r.expect (pumpUntil ([&] { auto* d = f.openDevice(); return d != nullptr && d->blocksRendered() > 10 && d->blocksRendered() != frozenAt; }, 8000),
+                      "a device that stops calling back is opened again, and plays");
+            r.expect (f.host->status().state == AudioState::open && f.host->status().message.isEmpty(),
+                      "with nothing to complain about: " + f.host->status().message);
 
+            device = f.openDevice();
+            if (device == nullptr)
+                return;
+            device->freeze (true);
             const auto s = f.host->choose (f.host->status().chosen);
             r.expect (pumpUntil ([&] { return f.openDevice() != nullptr && f.openDevice()->blocksRendered() > 10; }, 3000),
-                      "choosing it again reopens it, and it plays");
-            r.expect (f.host->status().message.isEmpty(), "with nothing to complain about: " + f.host->status().message + " / " + s.message);
+                      "choosing it again reopens it too, and it plays: " + s.message);
+        }
+
+        void testGoneButListed (Results& r)
+        {
+            // An ASIO driver with its USB interface pulled out: still listed, silent, will not open.
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            Fixture f (temp.folder, SimulatedAudioDeviceType::Clock::realTime);
+            const AudioChoice wanted { SimulatedAudioDeviceType::typeName, "Simulated Output 2", 0.0, 0, 0 };
+            f.host->choose (wanted);
+            r.expect (f.settle(), "settled on the chosen device");
+
+            f.type->unplugListed ("Simulated Output 2");
+            r.expect (pumpUntil ([&] { return f.host->status().state == AudioState::fallback; }, 8000),
+                      "it falls back to another output: " + f.host->status().message);
+            r.expect (f.type->findOpenDevice ("Simulated Output 1") != nullptr && f.host->status().chosen == wanted,
+                      "which plays, and the choice is kept");
+
+            // Retries while it is gone must not cut off the fallback: the same device keeps playing.
+            auto* fallback = f.openDevice();
+            const auto before = fallback != nullptr ? fallback->blocksRendered() : 0;
+            pumpFor (6000); // more than retryListedMs: at least one try
+            // 6 s is about 600 blocks; a device reopened during it would have counted from 0.
+            r.expect (f.openDevice() == fallback && fallback != nullptr && fallback->blocksRendered() >= before + 500
+                          && f.host->status().state == AudioState::fallback,
+                      "trying the chosen device again leaves the fallback playing");
+
+            f.type->plugInListed ("Simulated Output 2");
+            r.expect (pumpUntil ([&] { return f.host->status().state == AudioState::open; }, 8000),
+                      "when it is back, with nobody told, it is opened again within seconds: " + f.host->status().message);
+            r.expect (pumpUntil ([&] { return f.openDevice() != nullptr && f.openDevice()->getName() == "Simulated Output 2"
+                                              && f.openDevice()->blocksRendered() > 10; }, 3000),
+                      "and plays");
         }
     }
 
@@ -529,6 +570,7 @@ namespace collabgod
         testRemovalAndReconnection (r);
         testRemovalWhilePlaying (r);
         testStalledDevice (r);
+        testGoneButListed (r);
 
         std::cout << r.passed << " passed, " << r.failed << " failed" << std::endl;
         return r.failed == 0 ? 0 : 1;

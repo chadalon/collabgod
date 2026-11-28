@@ -366,6 +366,11 @@ namespace collabgod
 
         reopening = false;
 
+        // A device just opened has not had time to call back: the stall watch starts again
+        // from now, or a device opened after a stall would inherit the old one's silence.
+        lastCallbackSeen = nowMs();
+        lastCallbackCount = timing->callbacks.load (std::memory_order_relaxed);
+
         if (error.isEmpty() && dm.getCurrentAudioDevice() == nullptr)
             error = choice.device.isEmpty() ? "There is no audio output device" : describe (choice.type, choice.device) + " did not open";
 
@@ -411,6 +416,7 @@ namespace collabgod
         chosen = next;
         lastMessage = {};
         lastReconnectAttempt = {};
+        chosenWontOpen = false;
         settings.setAudioChoice (chosen);
 
         const auto threads = threadsFor (chosen);
@@ -462,7 +468,7 @@ namespace collabgod
             s.message = describe (want.type, want.device) + " is not available; playing through "
                       + describe (s.type, s.device) + " until it is back";
         else if (stalled)
-            s.message = describe (s.type, s.device) + " has stopped playing. Choose it again, or another output";
+            s.message = describe (s.type, s.device) + " has stopped playing; opening it again";
         else
             s.message = lastMessage;
 
@@ -548,14 +554,21 @@ namespace collabgod
         if (chosen.device.isEmpty() && chosen.type.isEmpty())
             return; // nothing chosen: whatever JUCE opens by default is right
 
-        if (status().state == AudioState::open)
+        if (status().state == AudioState::open && ! stalled)
         {
             lastReconnectAttempt = {};
+            chosenWontOpen = false;
             return;
         }
 
+        // A device that has gone is usually seen leaving the list and coming back. An ASIO
+        // driver keeps listing a pulled-out interface and says nothing when it is back: the
+        // device only stops calling back, and then will not open. So a stalled device, or a
+        // listed one that would not open, is tried again now and then whatever the list says.
         const auto key = deviceListKey();
-        if (key == lastReconnectAttempt)
+        const bool listChanged = key != lastReconnectAttempt;
+        const bool retryDue = (stalled || chosenWontOpen) && nowMs() - lastListedRetry >= retryListedMs;
+        if (! listChanged && ! retryDue)
             return;
         lastReconnectAttempt = key;
 
@@ -568,19 +581,65 @@ namespace collabgod
             if (! type->getDeviceNames (false).contains (want.device))
                 return;
 
-            log ("The chosen output " + describe (want.type, want.device) + " is back; opening it");
+            const bool retrying = ! listChanged;
+            if (retrying)
+            {
+                lastListedRetry = nowMs();
+                // Another device is playing: find out whether the chosen one opens before
+                // closing that, so the fallback is not cut off every few seconds.
+                if (! stalled && getDeviceManager().getCurrentAudioDevice() != nullptr && ! opensOnItsOwn (want))
+                    return;
+            }
+
+            const bool quiet = retrying && chosenWontOpen && ! stalled; // said once already
+            if (! quiet)
+                log (stalled ? describe (want.type, want.device) + " has stopped playing; opening it again"
+                             : "The chosen output " + describe (want.type, want.device) + " is back; opening it");
+
             const auto error = open (want);
             if (error.isNotEmpty())
             {
-                log ("Could not open it: " + error);
+                if (! chosenWontOpen)
+                    log ("Could not open it: " + error + ". Trying again every " + juce::String (juce::roundToInt (retryListedMs / 1000.0)) + " s");
+                chosenWontOpen = true;
                 lastMessage = error;
             }
             else
             {
+                if (chosenWontOpen)
+                    log ("The chosen output " + describe (want.type, want.device) + " opens again");
+                chosenWontOpen = false;
                 lastMessage = {};
             }
             return;
         }
+    }
+
+    bool EngineHost::opensOnItsOwn (const AudioChoice& want)
+    {
+        for (auto* type : getDeviceManager().getAvailableDeviceTypes())
+        {
+            if (type->getTypeName() != want.type)
+                continue;
+
+            std::unique_ptr<juce::AudioIODevice> device (type->createDevice (want.device, {}));
+            if (device == nullptr || device->getLastError().isNotEmpty())
+                return false;
+
+            const auto rates = device->getAvailableSampleRates();
+            if (rates.isEmpty())
+                return false;
+
+            juce::BigInteger outputs;
+            outputs.setRange (0, 2, true);
+            const auto rate = rates.contains (want.sampleRate) ? want.sampleRate : rates[0];
+            const auto size = want.bufferSize > 0 ? want.bufferSize : device->getDefaultBufferSize();
+            const auto error = device->open ({}, outputs, rate, size);
+            device->close();
+            return error.isEmpty();
+        }
+
+        return false;
     }
 
     void EngineHost::openSomethingIfNone()
@@ -660,14 +719,27 @@ namespace collabgod
     {
         // A driver type that does not announce a device coming back (ASIO, DirectSound) is
         // scanned now and then while the chosen device is missing.
-        if (now - lastRescan >= rescanWhileMissingMs && (chosen.type.isNotEmpty() || chosen.device.isNotEmpty())
-            && status().state != AudioState::open)
+        const bool nothingChosen = chosen.type.isEmpty() && chosen.device.isEmpty();
+        if (now - lastRescan >= rescanWhileMissingMs && (stalled || (! nothingChosen && status().state != AudioState::open)))
         {
             lastRescan = now;
             for (auto* type : getDeviceManager().getAvailableDeviceTypes())
                 if (type->getTypeName() == chosen.type)
                     type->scanForDevices();
-            reopenChosenIfBack();
+
+            if (! nothingChosen)
+            {
+                reopenChosenIfBack();
+            }
+            else if (now - lastListedRetry >= retryListedMs)
+            {
+                // Stalled with nothing chosen: whatever opens by default is right.
+                lastListedRetry = now;
+                if (auto* device = getDeviceManager().getCurrentAudioDevice())
+                    log (describe (device->getTypeName(), device->getName()) + " has stopped playing; opening the default output again");
+                open ({});
+            }
+
             openSomethingIfNone();
         }
 

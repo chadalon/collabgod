@@ -122,6 +122,28 @@ namespace collabgod
         callDeviceChangeListeners();
     }
 
+    void SimulatedAudioDeviceType::unplugListed (const juce::String& name)
+    {
+        JUCE_ASSERT_MESSAGE_THREAD
+        goneButListed.addIfNotAlreadyThere (name);
+
+        const juce::ScopedLock sl (openLock);
+        for (auto* device : open)
+            if (device->getName() == name)
+                device->freeze (true);
+    }
+
+    void SimulatedAudioDeviceType::plugInListed (const juce::String& name)
+    {
+        JUCE_ASSERT_MESSAGE_THREAD
+        goneButListed.removeString (name);
+    }
+
+    bool SimulatedAudioDeviceType::isGoneButListed (const juce::String& name) const
+    {
+        return goneButListed.contains (name);
+    }
+
     SimulatedAudioDevice* SimulatedAudioDeviceType::findOpenDevice (const juce::String& name) const
     {
         const juce::ScopedLock sl (openLock);
@@ -163,6 +185,8 @@ namespace collabgod
 
         if (removed)
             return lastError = "The device has been unplugged";
+        if (type.isGoneButListed (getName()))
+            return lastError = "Cannot open " + getName() + " (the hardware is not there)";
 
         const auto rates = getAvailableSampleRates();
         const auto sizes = getAvailableBufferSizes();
