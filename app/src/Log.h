@@ -26,4 +26,15 @@ namespace collabgod
         ScopedSilentLog();
         ~ScopedSilentLog();
     };
+
+    /** While it exists, keeps every line log() is given, even under ScopedSilentLog, so a
+        test can check what the app said. Message thread only; one at a time. */
+    struct ScopedLogCapture
+    {
+        ScopedLogCapture();
+        ~ScopedLogCapture();
+
+        /** Lines given to log() since this was made, without their times. */
+        const juce::StringArray& lines() const;
+    };
 }

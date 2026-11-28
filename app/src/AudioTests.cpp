@@ -405,6 +405,7 @@ namespace collabgod
         void testRemovalAndReconnection (Results& r)
         {
             const ScopedSilentLog silent;
+            const ScopedLogCapture captured;
             TempFolder temp;
             Fixture f (temp.folder);
             const AudioChoice wanted { SimulatedAudioDeviceType::typeName, "Simulated Output 2", 48000.0, 256, 0 };
@@ -426,6 +427,11 @@ namespace collabgod
             auto s = f.host->status();
             r.expect (s.device == "Simulated Output 1" && s.chosen == wanted, "to another output, keeping the choice: " + s.device);
             r.expect (s.message.contains ("Simulated Output 2"), "and says why: " + s.message);
+            int saidSo = 0;
+            for (const auto& line : captured.lines())
+                saidSo += line == s.message ? 1 : 0;
+            r.expect (saidSo == 1, "and the log says so, once, though JUCE moved the output on its own, as on CoreAudio: "
+                                       + juce::String (saidSo) + " times");
             r.expect (SettingsFile (temp.folder).audioChoice() == wanted, "the remembered choice is not overwritten by the fallback");
             r.expect (f.type->numOpenDevices() == 1, "only the fallback is open");
             r.expect (renderOnAudioThread (f.openDevice(), 10) == 10, "the fallback plays");

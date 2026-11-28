@@ -40,6 +40,27 @@ namespace collabgod
     ScopedSilentLog::ScopedSilentLog() { ++silenced; }
     ScopedSilentLog::~ScopedSilentLog() { --silenced; }
 
+    namespace
+    {
+        std::unique_ptr<juce::StringArray> captured;
+    }
+
+    ScopedLogCapture::ScopedLogCapture()
+    {
+        jassert (captured == nullptr);
+        captured = std::make_unique<juce::StringArray>();
+    }
+
+    ScopedLogCapture::~ScopedLogCapture()
+    {
+        captured.reset();
+    }
+
+    const juce::StringArray& ScopedLogCapture::lines() const
+    {
+        return *captured;
+    }
+
     void startLog()
     {
         logger = std::make_unique<AppLogger>();
@@ -59,6 +80,9 @@ namespace collabgod
 
     void log (const juce::String& message)
     {
+        if (captured != nullptr)
+            captured->add (message);
+
         if (silenced > 0)
             return;
 

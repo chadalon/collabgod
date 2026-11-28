@@ -858,6 +858,14 @@ namespace collabgod
         if (lastNotified.has_value() && s.sameExceptCounters (*lastNotified))
             return;
 
+        // Whoever moved the output (the app, or JUCE on its own when CoreAudio drops a device),
+        // the log says the chosen device is missing, as the panel does.
+        const bool fallbackIsNew = s.state == AudioState::fallback
+                                   && (! lastNotified.has_value() || lastNotified->state != AudioState::fallback
+                                       || lastNotified->type != s.type || lastNotified->device != s.device);
+        if (fallbackIsNew)
+            log (s.message);
+
         lastNotified = s;
         if (onStatusChanged != nullptr)
             onStatusChanged (s);
