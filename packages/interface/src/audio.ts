@@ -209,6 +209,10 @@ export class AudioPanel {
   /** The app says the output changed. While open, the lists are scanned again, since a device came or went. */
   statusChanged(status: AudioStatus): void {
     if (this.devices === undefined) return;
+    // While the panel makes a change it may try several devices, and the app announces each
+    // refusal on the way. The change itself shows where it ended, so a refusal it got past
+    // (ASIO's default driver, when another one opens) does not flash up.
+    if (this.busy) return;
     this.devices = { ...this.devices, status };
     if (!this.hidden) void this.refresh();
   }
