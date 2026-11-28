@@ -39,7 +39,7 @@ The page also sends these to the app every 30 seconds, which writes them to its 
 
 ## Must hold
 
-- **Draw with WebGL2**, since WKWebView on the Intel Mac has no WebGPU, and test every shader in both web views, because WebKit refused one that Chromium accepted (`webview-ui` findings 2 and 3).
+- **Draw with WebGL2**, since WKWebView on the Intel Mac has no WebGPU, and test every shader in both web views, because WebKit refused one that Chromium accepted (`webview-ui` findings 2 and 3). Every program goes in `src/shaders.ts` and is built with `buildProgram` from `src/glsl.ts`; `test/shaders.test.ts` fails if GLSL appears anywhere else. The unit tests check each program's uniform precisions, and `CollabGod --bridge-check`, which CI runs on Windows and macOS, compiles and links each one in the real web view (#20).
 - **Redraw the moment the size changes**, in the `ResizeObserver` callback, as `src/surface.ts` does (`webview-ui` finding 11).
 - **Animate from timestamps, never by counting frames**: the app's display refresh and the page's do not line up (`webview-ui` finding 6). `FrameFeed.hostTimeNowMs` gives the app's clock now.
 - **Send engine commands only through `CommandQueue`**: at most one batch per display frame.

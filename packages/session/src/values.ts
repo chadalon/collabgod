@@ -7,7 +7,7 @@
  * each check takes `unknown` and looks at the actual value.
  */
 
-import type { ClipValues, NewMember, NewTrack, SampleRef, TimeSignature } from './types';
+import type { ClipValues, MemberVerifier, NewMember, NewTrack, SampleRef, TimeSignature } from './types';
 
 /** Positions and lengths are in ticks: 960 to a quarter note. */
 export const TICKS_PER_QUARTER = 960;
@@ -137,8 +137,16 @@ export const isSampleRef = (value: unknown): value is SampleRef =>
   (!has(value, 'audioHash') || isHash(value['audioHash'])) &&
   isSampleName(value['name']);
 
+/** Only the known scheme and its value, so a secret cannot ride along by mistake under another key. */
+export const isVerifier = (value: unknown): value is MemberVerifier =>
+  isObject(value) && onlyKeys(value, ['scheme', 'value']) && value['scheme'] === 'sha256' && isHash(value['value']);
+
 export const isNewMember = (value: unknown): value is NewMember =>
-  isObject(value) && isId(value['id']) && isMemberName(value['name']) && isColour(value['colour']);
+  isObject(value) &&
+  isId(value['id']) &&
+  isMemberName(value['name']) &&
+  isColour(value['colour']) &&
+  isVerifier(value['verifier']);
 
 export const isNewTrack = (value: unknown, isPosition: (key: unknown) => boolean): value is NewTrack =>
   isObject(value) && isId(value['id']) && isTrackName(value['name']) && isPosition(value['position']);

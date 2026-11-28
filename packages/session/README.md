@@ -1,6 +1,6 @@
 # `@collabgod/session`
 
-The session model: what a project holds, every operation that changes it, and a replica that keeps one person's copy in step with the shared order and holds their undo history. Issues [#23](https://github.com/chadalon/collabgod/issues/23) and [#24](https://github.com/chadalon/collabgod/issues/24). The design is [ADR-0004](../../docs/adr/0004-ordered-edit-log.md) (one ordered edit log) and [ADR-0014](../../docs/adr/0014-session-model-representation.md) (how the state is kept).
+The session model: what a project holds, every operation that changes it, and a replica that keeps one person's copy in step with the shared order and holds their undo history. Issues [#23](https://github.com/chadalon/collabgod/issues/23) and [#24](https://github.com/chadalon/collabgod/issues/24). The design is [ADR-0004](../../docs/adr/0004-ordered-edit-log.md) (one ordered edit log), [ADR-0014](../../docs/adr/0014-session-model-representation.md) (how the state is kept) and [ADR-0017](../../docs/adr/0017-project-file-v1.md) (who made what). Saving it is [`@collabgod/project`](../project).
 
 It is pure TypeScript with no runtime dependencies and no Node, browser, interface or engine APIs, so it runs in a test, in the app, in the relay and in a browser (ENG-1). The type check enforces that: the package is compiled with the ES2023 library only.
 
@@ -11,7 +11,7 @@ From the repository root (the package is part of the root npm workspace):
 ```sh
 npm ci
 npm run typecheck -w @collabgod/session
-npm test -w @collabgod/session               # about 120 tests in about 10 seconds, the timing test included
+npm test -w @collabgod/session               # about 130 tests in about 15 seconds, the timing test included
 FC_SCALE=40 npm test -w @collabgod/session   # the property tests with 40 times as many random cases
 ```
 
@@ -72,12 +72,15 @@ The interface draws `me.view`. Nothing else may change the session: `view` is re
 
 - **Every change is an operation** with an id, the member who made it, and a change. `apply` is deterministic, never throws on what it is given, and checks every field, since operations come off the network.
 - **An operation that cannot apply has no effect and says why**: `invalid`, `id-exists`, `target-missing`, `track-missing`, `out-of-range`, `guard-failed` or `no-change`. A replica reports its own operation as `rejected` when the relay's order shows it had no effect, so the interface can tell the person.
-- **Every operation that applies returns its inverse**, which puts the state back exactly, revisions included. Inverses are guarded: one applied later only writes fields still holding the revision the original left. A new kind of operation needs an exact inverse, and `test/inverse.property.test.ts` fails if it is not.
+- **Every operation that applies returns its inverse**, which puts the state back exactly, revisions and authors included. Inverses are guarded: one applied later only writes fields still holding the revision the original left. A new kind of operation needs an exact inverse, and `test/inverse.property.test.ts` fails if it is not.
 - **Time is in ticks**, 960 to a quarter note. One tempo, in quarter notes per minute (20 to 999), and one time signature per project. A clip's `offset` is in **seconds of its file**, so a tempo change does not change which audio a clip starts on.
 - **A trim ties each edge to a point in the audio.** `clip.trim` takes `from`, `to` or both: seconds into the clip's file where it should start and end. The other edge stays put. `fileTimeAt(clip, tick, tempo)` turns the tick where a person dropped an edge into that point. The model turns each point back into a whole tick through where the clip's audio sits now and works out the offset from that tick, so a trim never moves the audio. After someone moves the clip or changes the tempo, a trim still lands on the same sound. Of two trims to the same edge at once, the later wins. A left edge cannot go past the start of the file or the timeline (`out-of-range`).
 - **A clip refers to its sample by file hash, audio hash when known, and a file name** (ADR-0008). A name with a `/` or `\` in it, or any extra field on the sample, is refused, so a local path cannot get into the session.
 - **Track order is a position key on each track**, sorted by key and then by id. Use `trackPositionAt(view, index, trackId)` to make one.
+- **Who made what is part of the state** (SYN-9, ADR-0017). Beside each field's revision, `by` names the member whose operation wrote it, and every member, track and clip has `createdBy`, the member who added it (for the right half of a split, whoever split it). Inverses put both back exactly, so after an undo `by` names whoever made what is there again, and a removed clip comes back with its creator.
+- **A session knows which project it is** (`projectId`, ADR-0017). It is given to `Session.empty` when the project is created, travels with every snapshot, and no operation changes it. A `Replica` is always started from a session, so it knows too.
 - **Members are marked as removed, never deleted** (ADR-0006). Nothing here assumes two members.
+- **A member carries a verifier**, fixed for life: what checks their secret, never the secret (ADR-0006). The one scheme so far is `sha256`, the SHA-256 of a secret of at least 128 random bits that the member's install keeps. `member.add` refuses a member without one, or a verifier with any other field in it; other fields on the member are dropped.
 - **Fades are stored as set** and may add up to more than a trimmed clip. `effectiveFades` gives what should sound; the interface and the engine both use it.
 
 ## Undo
@@ -90,6 +93,7 @@ Undo is per member (SYN-5, ADR-0004). `undo()` sends the inverse of this member'
 - **A new edit clears redo.** Adding a member is not undoable (ADR-0014).
 - **An undo is the inverse in the shared order.** An undo of an edit the relay has not confirmed yet shows at once, but it is sent only once that edit comes back, carrying the inverse worked out where the relay put it; anything made after the undo waits with it. Sent at once, it would carry the inverse against this replica's view, and if someone else's edit to the same thing was ordered first, the undo would wipe theirs out too. If the edit comes back rejected, the undo (and a redo of it) is dropped without being sent.
 - **At the same moment as someone else's edit to the same thing**: if theirs is ordered first, the undo comes back `rejected` and theirs stands, and the next undo goes on to an older edit; if the undo is ordered first, it applies and their edit, being later, wins, after which a redo is skipped. Either way every machine agrees.
+- **An undo puts back who made what as well**: each field it restores gets back its revision and its author, even on a replica built from a snapshot taken after that author's edit was overwritten.
 - **The history belongs to the member, not the connection** (ADR-0006). A dropped connection leaves the replica, and its history, as they were. A new replica for the same member, after an error or a restart, takes the old one's `history`: plain data, confirmed entries only, refused for any other member. So if the app builds a new replica while some edits are sent but not confirmed, and the relay then orders them, those edits are in effect but cannot be undone.
 - **`canUndo` and `canRedo` say whether that side holds anything, not whether any of it still applies.** Only trying tells. The interface should handle an undo or redo that finds nothing, for instance by greying the button out once it has.
 
@@ -106,9 +110,8 @@ A split's `at` counts from the clip's start and a trim's edges are points in the
 
 ## Not here yet
 
-- Saving the undo history with the project, so it survives closing the app. `history` is plain data the project file (#25) could hold.
-- A limit on how long the undo history grows, and grouping several operations into one undo step.
-- The project file (#25), and checking a member's secret (#25, #36).
+- A limit on how long the undo history grows, and grouping several operations into one undo step. The project file saves the history as it is (`@collabgod/project`).
+- Making a member's secret (#161) and checking it (#36). The model only holds the verifier.
 - Resending unconfirmed operations after a reconnect (Phase 2, LOB-6). Operation ids already make a resent operation recognisable.
 - A feed of what changed for the engine projection (#29) and the timeline (#31). See ADR-0014.
 - Mute and the rest of the mixer, MIDI, automation and plugins: later phases.

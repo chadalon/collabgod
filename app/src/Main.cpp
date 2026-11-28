@@ -9,6 +9,7 @@
 #include "BridgeHost.h"
 #include "BridgeTests.h"
 #include "Log.h"
+#include "ProjectFileTests.h"
 #include "SmokeTest.h"
 #include "WebUi.h"
 #include "WebViewBackground.h"
@@ -30,6 +31,7 @@ namespace collabgod
                    "  --bridge-check               Open the window, run the bridge self-check in the page, close the\n"
                    "                               window and exit: 0 if every message crossed the bridge both ways\n"
                    "  --bridge-test                Run the bridge contract tests without a window\n"
+                   "  --project-file-test          Run the atomic save tests, crashes included, without a window\n"
                    "  --smoke-test                 Check the linked engine without a window or audio device\n"
                    "  --version                    Print the version and quit\n";
         }
@@ -128,6 +130,19 @@ namespace collabgod
             if (args.contains ("--bridge-test"))
             {
                 quitWith (runBridgeTests());
+                return;
+            }
+
+            if (args.contains ("--project-file-test"))
+            {
+                quitWith (runProjectFileTests());
+                return;
+            }
+
+            // Not in --help: the crash test starts the app this way, then kills it.
+            if (const auto target = valueAfter (args, "--project-file-crash-writer"); target.isNotEmpty())
+            {
+                quitWith (runCrashWriter (juce::File (target)));
                 return;
             }
 

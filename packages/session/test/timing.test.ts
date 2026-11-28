@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { type Change, opIdSource, Replica, Session } from '../src';
-import { newClip, sample } from './helpers';
+import { newClip, PROJECT, sample } from './helpers';
 
 declare const performance: { now(): number };
 declare const console: { log(message: string): void };
@@ -16,7 +16,7 @@ const BUDGET_MS = 4;
 
 /** A busy real project: 50 tracks, 5,000 clips. */
 function bigSession(tracks: number, clips: number): Session {
-  const session = Session.empty();
+  const session = Session.empty(PROJECT);
   let n = 0;
   const apply = (change: Change) => session.apply({ id: `seed:${(n += 1)}`, author: 'seed', change });
   for (let t = 0; t < tracks; t += 1) {

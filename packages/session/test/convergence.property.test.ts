@@ -3,7 +3,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { canonical, Replica, Session } from '../src';
-import { fold, runs } from './helpers';
+import { fold, PROJECT, runs } from './helpers';
 import { type Kind, KINDS, run, type Sim, stepLists } from './sim';
 
 function expectConverged(sim: Sim): void {
@@ -98,7 +98,7 @@ describe('convergence', () => {
       fc.property(stepLists(120), (steps) => {
         const sim = run(2, steps);
         sim.drain();
-        const late = new Replica({ author: 'late', nextOpId: () => 'unused' });
+        const late = new Replica({ author: 'late', nextOpId: () => 'unused', session: Session.empty(PROJECT) });
         for (const message of sim.log) late.receive(message);
         expect(canonical(late.view)).toBe(canonical(sim.client(0).view));
       }),
@@ -112,7 +112,7 @@ describe('convergence', () => {
         const sim = run(2, steps);
         sim.drain();
         // Replay the log; every operation that does not apply must be one its author was told about.
-        const session = Session.empty();
+        const session = Session.empty(PROJECT);
         const noEffect = new Map<string, number>();
         for (const { operation } of sim.log) {
           if (!session.apply(operation).applied)

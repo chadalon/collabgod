@@ -3,11 +3,11 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { canonical, type Change, type Operation, Session } from '../src';
-import { op, runs, SEED } from './helpers';
+import { op, PROJECT, runs, SEED } from './helpers';
 import { type Dice, dice, idSource, KINDS, randomChange } from './sim';
 
 function seeded(): Session {
-  const session = Session.empty();
+  const session = Session.empty(PROJECT);
   SEED.forEach((change, i) => session.apply({ id: `seed:${i}`, author: 'm0', change }));
   return session;
 }

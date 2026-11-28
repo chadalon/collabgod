@@ -40,6 +40,10 @@ target_sources(collabgod PRIVATE
     src/Log.cpp
     src/Log.h
     src/Main.cpp
+    src/ProjectFile.cpp
+    src/ProjectFile.h
+    src/ProjectFileTests.cpp
+    src/ProjectFileTests.h
     src/SmokeTest.cpp
     src/SmokeTest.h
     src/UiFiles.cpp
@@ -127,8 +131,22 @@ add_custom_target(collabgod_ui ALL
 add_dependencies(collabgod_ui collabgod)
 
 # ---------------------------------------------------------------------------
-# Tests. They need no window and no audio device, so they run on CI runners.
-# On Linux, JUCE's GUI app still wants a display: run ctest under xvfb-run.
+# Tests. They need no audio device and no GPU, so they run on CI runners, which
+# have neither (#20). On Linux, JUCE's GUI app still wants a display: run ctest
+# under xvfb-run.
+#
+# - A test that needs a sound card uses a simulated one, as the spikes do:
+#   Tracktion's HostedAudioDeviceInterface, with the test calling the audio
+#   callback block by block (`engine_spike live-check` in
+#   spikes/engine-toolchain, and spikes/engine-projection). Never the machine's
+#   default device. The app's own comes with audio device selection (#27).
+# - A test that measures frame rate or drawing speed is informational in CI,
+#   never a pass or fail: the runners draw in software and failed a benchmark
+#   that both real machines passed (webview-ui findings). Give it a ctest label
+#   of its own and keep it out of the default run, or run it in CI with
+#   continue-on-error.
+# - The bridge check builds every shader the interface ships in the real web
+#   view: WKWebView on macOS, WebView2 on Windows (packages/interface/src/shaders.ts).
 # ---------------------------------------------------------------------------
 
 add_test(NAME app_version COMMAND collabgod --version)
@@ -143,6 +161,11 @@ set_tests_properties(app_smoke_test PROPERTIES TIMEOUT 120)
 # generated codec and dispatch, and the real BridgeHost. No window.
 add_test(NAME app_bridge_contract COMMAND collabgod --bridge-test)
 set_tests_properties(app_bridge_contract PROPERTIES TIMEOUT 60)
+
+# Atomic saves (#25): writing, replacing, failing without touching the old file, and a
+# second copy of the app killed again and again while it saves. No window.
+add_test(NAME app_project_file COMMAND collabgod --project-file-test)
+set_tests_properties(app_project_file PROPERTIES TIMEOUT 300)
 
 # The whole bridge through the real web view: opens the window, the page calls every
 # function, receives every event and sends every command, then the window is closed

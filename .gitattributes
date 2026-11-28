@@ -1,2 +1,6 @@
 # Shell scripts run on Linux machines, which reject Windows line endings.
 *.sh text eol=lf
+
+# Project files are written with LF line endings. The example files in
+# packages/project/test/files are compared byte for byte with what the code writes.
+*.collabgod text eol=lf

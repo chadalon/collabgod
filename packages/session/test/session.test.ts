@@ -9,17 +9,18 @@ import {
   effectiveFades,
   MAX_CLIP_GAIN_DB,
   MIN_CLIP_GAIN_DB,
+  NO_AUTHOR,
   NO_REVISION,
   type Operation,
   Session,
   TICKS_PER_QUARTER,
   ticksToSeconds,
 } from '../src';
-import { hash, must, newClip, op, reason, sample, SEED, trimTo, unchanged } from './helpers';
+import { hash, must, newClip, op, PROJECT, reason, sample, SEED, trimTo, unchanged, verifier } from './helpers';
 
 /** A session with the seed: tracks t1 (Drums) and t2 (Bass), clips k1 and k2 on t1, k3 on t2. */
 function seeded(): Session {
-  const session = Session.empty();
+  const session = Session.empty(PROJECT);
   SEED.forEach((change, i) => must(session, change, 'm1', `seed:${i}`));
   return session;
 }
@@ -42,11 +43,12 @@ function roundTrip(session: Session, change: Change, author = 'm1'): string {
 
 describe('a new session', () => {
   it('is empty, at 120 BPM in 4/4, with no revisions yet', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     expect(session.timeline).toEqual({
       tempo: DEFAULT_TEMPO,
       timeSignature: { numerator: 4, denominator: 4 },
       rev: { tempo: NO_REVISION, timeSignature: NO_REVISION },
+      by: { tempo: NO_AUTHOR, timeSignature: NO_AUTHOR },
     });
     expect(session.members.size + session.tracks.size + session.clips.size).toBe(0);
     expect(session.trackOrder).toEqual([]);
@@ -61,7 +63,7 @@ describe('a new session', () => {
 
 describe('operations', () => {
   it('carry an id and the member who made it, and are refused without either', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     const change: Change = { type: 'tempo.set', tempo: 100 };
     unchanged(session, () => {
       expect(reason(session.apply({ id: '', author: 'm1', change }))).toBe('invalid');
@@ -96,7 +98,7 @@ describe('operations', () => {
 
 describe('tempo and time signature', () => {
   it('change only by operation, and each has an inverse', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     roundTrip(session, { type: 'tempo.set', tempo: 87.5 });
     roundTrip(session, { type: 'timeSignature.set', timeSignature: { numerator: 7, denominator: 8 } });
     must(session, { type: 'tempo.set', tempo: 140 });
@@ -106,7 +108,7 @@ describe('tempo and time signature', () => {
   });
 
   it('refuse values out of range', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     unchanged(session, () => {
       for (const tempo of [19.9, 999.1, Number.NaN, Number.POSITIVE_INFINITY, '120']) {
         expect(reason(session.apply(op({ type: 'tempo.set', tempo } as unknown as Change)))).toBe('invalid');
@@ -124,7 +126,7 @@ describe('tempo and time signature', () => {
   });
 
   it('report no change when the value is already set', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     expect(reason(session.apply(op({ type: 'tempo.set', tempo: 120 })))).toBe('no-change');
     expect(
       reason(session.apply(op({ type: 'timeSignature.set', timeSignature: { numerator: 4, denominator: 4 } }))),
@@ -135,11 +137,11 @@ describe('tempo and time signature', () => {
 describe('members', () => {
   const add = (id: string, name = id, colour = '#ff8800'): Change => ({
     type: 'member.add',
-    member: { id, name, colour },
+    member: { id, name, colour, verifier: verifier(1) },
   });
 
   it('are added, renamed, recoloured and marked as removed, never deleted', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     roundTrip(session, add('m1', 'Chad'));
     must(session, add('m1', 'Chad'));
     roundTrip(session, { type: 'member.rename', memberId: 'm1', name: 'Chad A.' });
@@ -151,13 +153,13 @@ describe('members', () => {
   });
 
   it('can be any number; nothing assumes two', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     for (let i = 0; i < 7; i += 1) must(session, add(`member-${i}`), `member-${i}`);
     expect(session.members.size).toBe(7);
   });
 
   it('refuse a taken id, an empty name and a colour that is not #rrggbb', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     must(session, add('m1'));
     unchanged(session, () => {
       expect(reason(session.apply(op(add('m1'))))).toBe('id-exists');
@@ -170,8 +172,36 @@ describe('members', () => {
     });
   });
 
+  it('keep what checks their secret, never anything else, and refuse a malformed one', () => {
+    const session = Session.empty(PROJECT);
+    must(session, add('m1'));
+    expect(session.members.get('m1')?.verifier).toEqual(verifier(1));
+    const withVerifier = (value: unknown): Change =>
+      ({ type: 'member.add', member: { id: 'm2', name: 'x', colour: '#ff8800', verifier: value } }) as Change;
+    unchanged(session, () => {
+      for (const bad of [
+        undefined,
+        null,
+        'secret',
+        { scheme: 'sha256' },
+        { scheme: 'sha256', value: hash(0xabc).toUpperCase() },
+        { scheme: 'sha256', value: hash(1).slice(1) },
+        { scheme: 'md5', value: hash(1) },
+        { scheme: 'sha256', value: hash(1), secret: 'hunter2' },
+      ]) {
+        expect(reason(session.apply(op(withVerifier(bad))))).toBe('invalid');
+      }
+    });
+    // Only the known keys are kept, so nothing else on the member gets in either.
+    must(session, {
+      type: 'member.add',
+      member: { id: 'm3', name: 'x', colour: '#ff8800', verifier: verifier(3), secret: 'hunter2' } as never,
+    });
+    expect(Object.keys(session.members.get('m3') ?? {})).not.toContain('secret');
+  });
+
   it('come back exactly as they were when an unconfirmed add is rolled back and redone', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     const inverse = must(session, add('m1', 'Chad'));
     expect(inverse.type).toBe('member.unadd');
     const redo = must(session, inverse);
@@ -182,7 +212,7 @@ describe('members', () => {
 
 describe('tracks', () => {
   it('are listed by position key, then by id', () => {
-    const session = Session.empty();
+    const session = Session.empty(PROJECT);
     must(session, { type: 'track.add', track: { id: 'b', name: 'B', position: 'r' } });
     must(session, { type: 'track.add', track: { id: 'a', name: 'A', position: 'i' } });
     must(session, { type: 'track.add', track: { id: 'c', name: 'C', position: 'i' } });
@@ -543,10 +573,114 @@ describe('guarded inverses', () => {
   });
 });
 
+describe('the project id', () => {
+  it('is set when the session is made, and refused if it is not an id', () => {
+    expect(Session.empty('p-1').projectId).toBe('p-1');
+    for (const bad of ['', 'x'.repeat(257), 7, undefined]) {
+      expect(() => Session.empty(bad as string)).toThrow();
+    }
+  });
+
+  it('travels with every snapshot, so a joiner or a reopened copy has the same one', () => {
+    const session = seeded();
+    const snapshot = session.snapshot();
+    expect(snapshot.projectId).toBe(PROJECT);
+    expect(Session.fromSnapshot(snapshot).projectId).toBe(PROJECT);
+    for (const bad of [undefined, '', 'x'.repeat(257)]) {
+      expect(() => Session.fromSnapshot({ ...snapshot, projectId: bad as string })).toThrow(/project id/);
+    }
+  });
+
+  it('cannot be changed by any operation', () => {
+    const session = seeded();
+    const none = { projectId: '' };
+    unchanged(session, () => {
+      for (const change of [
+        { type: 'project.set', projectId: 'other' },
+        { type: 'timeline.patch', set: { projectId: 'other' }, expect: none, restore: none, restoreBy: none },
+      ]) {
+        expect(reason(session.apply(op(change as unknown as Change)))).toBe('invalid');
+      }
+    });
+    // A field the operation does not define is ignored, never applied.
+    must(session, { type: 'tempo.set', tempo: 100, projectId: 'other' } as unknown as Change);
+    expect(session.projectId).toBe(PROJECT);
+  });
+});
+
+describe('who made what', () => {
+  it('every field records the member whose operation last wrote it, and every object who added it', () => {
+    const session = seeded();
+    const k1 = clip(session, 'k1');
+    expect(k1.createdBy).toBe('m1');
+    expect(new Set(Object.values(k1.by))).toEqual(new Set(['m1']));
+    must(session, { type: 'clip.move', clipId: 'k1', trackId: 't2', start: 480 }, 'm2');
+    must(session, { type: 'tempo.set', tempo: 90 }, 'm3');
+    must(session, { type: 'track.rename', trackId: 't1', name: 'Kit' }, 'm2');
+    expect(clip(session, 'k1').by).toEqual({
+      trackId: 'm2',
+      start: 'm2',
+      length: 'm1',
+      offset: 'm1',
+      gain: 'm1',
+      fadeIn: 'm1',
+      fadeOut: 'm1',
+    });
+    expect(clip(session, 'k1').createdBy).toBe('m1');
+    expect(session.timeline.by).toEqual({ tempo: 'm3', timeSignature: NO_AUTHOR });
+    expect(session.tracks.get('t1')).toMatchObject({ createdBy: 'm1', by: { name: 'm2', position: 'm1' } });
+  });
+
+  it('an inverse puts back the authors that were there, whoever applies it', () => {
+    const session = seeded();
+    must(session, { type: 'clip.gain', clipId: 'k1', gain: -3 }, 'm2');
+    const inverse = must(session, { type: 'clip.gain', clipId: 'k1', gain: 6 }, 'm3');
+    must(session, inverse, 'm4');
+    expect(clip(session, 'k1')).toMatchObject({ gain: -3, by: { gain: 'm2' }, createdBy: 'm1' });
+  });
+
+  it('a removed clip or track comes back with its authors and its creator', () => {
+    const session = seeded();
+    must(session, { type: 'clip.fade', clipId: 'k3', fadeIn: 120, fadeOut: 0 }, 'm2');
+    const before = canonical(session);
+    must(session, must(session, { type: 'clip.remove', clipId: 'k3' }, 'm3'), 'm4');
+    must(session, must(session, { type: 'track.remove', trackId: 't2' }, 'm3'), 'm4');
+    expect(canonical(session)).toBe(before);
+    expect(clip(session, 'k3')).toMatchObject({ createdBy: 'm1', by: { fadeIn: 'm2', start: 'm1' } });
+  });
+
+  it('the right half of a split was made by whoever split it', () => {
+    const session = seeded();
+    must(session, { type: 'clip.split', clipId: 'k3', newClipId: 'k3b', at: 960 }, 'm2');
+    expect(clip(session, 'k3b').createdBy).toBe('m2');
+    expect(clip(session, 'k3')).toMatchObject({ createdBy: 'm1', by: { length: 'm2', fadeOut: 'm2', start: 'm1' } });
+  });
+
+  it('is refused when an inverse carries it malformed', () => {
+    const session = seeded();
+    const inverse = must(session, { type: 'clip.gain', clipId: 'k1', gain: -3 }, 'm2');
+    unchanged(session, () => {
+      const patch = inverse as Extract<Change, { type: 'clip.patch' }>;
+      expect(reason(session.apply(op({ ...patch, restoreBy: {} } as Change)))).toBe('invalid');
+      expect(reason(session.apply(op({ ...patch, restoreBy: { gain: 7 } } as unknown as Change)))).toBe('invalid');
+      const removed = Session.fromSnapshot(session.snapshot());
+      const add = must(removed, { type: 'clip.remove', clipId: 'k1' }) as Extract<Change, { type: 'clip.add' }>;
+      const restore = add.restore;
+      if (restore === undefined) throw new Error('expected a restore');
+      for (const bad of [{ ...restore, createdBy: '' }, { ...restore, by: { ...restore.by, gain: 1 } }]) {
+        expect(reason(removed.apply(op({ ...add, restore: bad } as unknown as Change)))).toBe('invalid');
+      }
+    });
+  });
+});
+
 describe('snapshots', () => {
   it('round-trip exactly, revisions included', () => {
     const session = seeded();
-    must(session, { type: 'member.add', member: { id: 'm1', name: 'Chad', colour: '#112233' } });
+    must(session, {
+      type: 'member.add',
+      member: { id: 'm1', name: 'Chad', colour: '#112233', verifier: verifier(1) },
+    });
     must(session, { type: 'tempo.set', tempo: 96 });
     must(session, { type: 'clip.split', clipId: 'k3', newClipId: 'k3b', at: 333 });
     const copy = Session.fromSnapshot(session.snapshot());
@@ -556,7 +690,7 @@ describe('snapshots', () => {
 
   it('do not depend on the order things were added in', () => {
     const a = seeded();
-    const b = Session.empty();
+    const b = Session.empty(PROJECT);
     [...SEED].reverse().forEach((change) => b.apply(op(change)));
     // Clips came before their tracks in b, so b holds only the tracks. Add the clips again in a third order.
     for (const change of [SEED[4], SEED[2], SEED[3]]) if (change) b.apply(op(change));
