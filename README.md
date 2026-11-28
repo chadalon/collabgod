@@ -65,7 +65,7 @@ The app is built in `build/`. On Windows it is `build/app/collabgod_artefacts/Re
 | Folder | What it holds |
 | --- | --- |
 | `app/` | The desktop app, in C++ on JUCE and Tracktion Engine. Built by the root `CMakeLists.txt` |
-| `cmake/` | The C++ build's shared parts: pinned dependencies, patches, checks |
+| `cmake/` | The C++ build's shared parts: pinned dependencies and checks |
 | `packages/session` | The session model: operations, undo, convergence. Pure TypeScript, used by the app, the relay and the tests |
 | `packages/interface` | The interface, TypeScript in the app's web view |
 | `packages/bridge` | Every message between the interface and the app, defined once; the app's C++ side is generated from it |

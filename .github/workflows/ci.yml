@@ -514,10 +514,10 @@ jobs:
   # Caching (#20). The 15-minute budget was met cold (about 5 to 9 minutes in Nov 2026),
   # and two caches keep it there as the app grows:
   # - The downloaded sources: JUCE, Tracktion Engine and, on Windows, the WebView2 SDK,
-  #   about 250 MB fetched at configure time. Keyed on the files that pin them and on
-  #   cmake/TracktionPatches.cmake. The patches edit tracktion-src in place before it is
-  #   saved, and the fetch script never resets a tree already at the right commit, so a
-  #   key without the patch file would keep a removed or changed patch's old edits.
+  #   about 250 MB fetched at configure time. Keyed on the files that pin them. If a
+  #   step ever edits tracktion-src in place again (as cmake/TracktionPatches.cmake did
+  #   until #155), add that file to the keys: the fetch script never resets a tree
+  #   already at the right commit, so a cached tree would keep old edits.
   # - ccache on macOS, the slower runner to compile. CMake gets it through
   #   CMAKE_<LANG>_COMPILER_LAUNCHER. Windows builds with the Visual Studio generator,
   #   which ignores compiler launchers; if its time grows, Ninja with ccache or sccache
@@ -551,8 +551,8 @@ jobs:
       - name: Cache keys
         shell: bash
         run: |
-          echo "SOURCES_KEY=app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
-          echo "CCACHE_KEY=app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
+          echo "SOURCES_KEY=app-sources-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/WebView2.cmake', 'cmake/ShallowFetchCommit.cmake') }}" >> "$GITHUB_ENV"
+          echo "CCACHE_KEY=app-ccache-${{ matrix.os }}-${{ hashFiles('cmake/Dependencies.cmake') }}" >> "$GITHUB_ENV"
       - name: Restore the downloaded sources
         id: sources
         uses: actions/cache/restore@v5
@@ -646,13 +646,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The Mac we test on stops at macOS 13.7, so its compiler is Apple clang 15, which
-  # lacks C++20 parenthesised aggregate initialisation. cmake/TracktionPatches.cmake
-  # works around Tracktion Engine's two uses of it. GitHub's Mac runners all have a
-  # newer Xcode (macOS 14 runners, the last with Xcode 15, were retired on 2026-11-02),
-  # so they never exercise the patches. Open-source clang 15 lacks the same feature
-  # (it arrived in clang 16), so building with it fails if a patch stops working or
-  # Tracktion starts using the feature somewhere new. It is a stand-in: Apple clang
-  # differs in other ways, so the Intel MacBook stays the real test.
+  # lacks some C++20 features, such as parenthesised aggregate initialisation.
+  # Tracktion Engine fixed its last uses of that for us (Tracktion/tracktion_engine#505).
+  # GitHub's Mac runners all have a newer Xcode (macOS 14 runners, the last with
+  # Xcode 15, were retired on 2026-11-02), so they would not notice a new use.
+  # Open-source clang 15 lacks the same ones (parenthesised aggregate initialisation
+  # arrived in clang 16), so this job fails if a Tracktion Engine or JUCE update starts
+  # using one. It is a stand-in: Apple clang differs in other ways, so the Intel
+  # MacBook stays the real test.
   app-clang-15:
     name: App with clang 15 (stand-in for Apple clang 15)
     needs: changes
@@ -693,8 +694,8 @@ jobs:
         run: |
           echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
-          echo "SOURCES_KEY=app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
-          echo "CCACHE_KEY=app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/TracktionPatches.cmake') }}" >> "$GITHUB_ENV"
+          echo "SOURCES_KEY=app-sources-clang-15-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/ShallowFetchCommit.cmake') }}" >> "$GITHUB_ENV"
+          echo "CCACHE_KEY=app-ccache-clang-15-${{ hashFiles('cmake/Dependencies.cmake') }}" >> "$GITHUB_ENV"
       - name: Restore the downloaded sources
         id: sources
         uses: actions/cache/restore@v5
