@@ -334,10 +334,17 @@ namespace collabgod
         if (choice.type.isNotEmpty() && type == nullptr)
             return "There is no driver type \"" + choice.type + "\" on this machine. It has: " + typeNames.joinIntoString (", ");
 
-        if (type != nullptr && choice.device.isNotEmpty())
+        if (type != nullptr)
         {
             type->scanForDevices();
-            if (! type->getDeviceNames (false).contains (choice.device))
+            const auto names = type->getDeviceNames (false);
+
+            // Without this, JUCE opens the old type's default instead, and the choice was saved as
+            // if the type had opened (ASIO picked on a machine with no ASIO driver).
+            if (names.isEmpty())
+                return "\"" + choice.type + "\" has no output devices on this machine";
+
+            if (choice.device.isNotEmpty() && ! names.contains (choice.device))
                 return describe (choice.type, choice.device) + " is not connected";
         }
 
@@ -461,11 +468,12 @@ namespace collabgod
         s.bufferSizes = device->getAvailableBufferSizes();
 
         const auto want = effectiveChoice (chosen);
-        const bool isChosen = want.device.isEmpty() || (s.device == want.device && (want.type.isEmpty() || s.type == want.type));
+        const bool isChosen = (want.type.isEmpty() || s.type == want.type) && (want.device.isEmpty() || s.device == want.device);
         s.state = isChosen ? AudioState::open : AudioState::fallback;
 
         if (s.state == AudioState::fallback)
-            s.message = describe (want.type, want.device) + " is not available; playing through "
+            s.message = (want.device.isEmpty() ? "No " + want.type + " device is connected" : describe (want.type, want.device) + " is not available")
+                      + "; playing through "
                       + describe (s.type, s.device) + " until it is back";
         else if (stalled)
             s.message = describe (s.type, s.device) + " has stopped playing; opening it again";
@@ -518,9 +526,12 @@ namespace collabgod
         const auto rate = device != nullptr ? device->getCurrentSampleRate() : 0.0;
         const auto block = device != nullptr ? device->getCurrentBufferSizeSamples() : 0;
 
-        if (! deviceKnown || device != lastDevice || name != lastDeviceName || typeName != lastTypeName
-            || ! juce::exactlyEqual (rate, lastRate) || block != lastBlock)
+        if (! isLastSeen (device))
         {
+            // Another device, or this one reopened after going away: exclusive mode may try again.
+            if (device == nullptr || ! exclusiveTried.startsWith (device->getTypeName() + "|" + device->getName() + "|"))
+                exclusiveTried = {};
+
             deviceKnown = true;
             lastDevice = device;
             lastDeviceName = name;
@@ -698,23 +709,40 @@ namespace collabgod
         if (safe <= current)
             return;
 
+        // Once per device and rate: a device that lists the safe size but opens smaller anyway
+        // would otherwise be reopened on every change message, each reopen sending another.
+        const auto key = device->getTypeName() + "|" + device->getName() + "|" + juce::String (device->getCurrentSampleRate());
+        if (key == exclusiveTried)
+            return;
+        exclusiveTried = key;
+
         auto setup = dm.getAudioDeviceSetup();
         setup.bufferSize = safe;
         log ("Exclusive mode: " + juce::String (current) + " samples per block dropped out on Windows; using "
              + juce::String (safe) + " (engine-projection finding 12)");
         reopening = true;
-        dm.setAudioDeviceSetup (setup, false);
+        const auto error = dm.setAudioDeviceSetup (setup, false);
         reopening = false;
+
+        auto* reopened = dm.getCurrentAudioDevice();
+        if (error.isNotEmpty() || reopened == nullptr || reopened->getCurrentBufferSizeSamples() < safe)
+            log ("The device did not take " + juce::String (safe) + " samples ("
+                 + (error.isNotEmpty() ? error : "it opened at " + juce::String (reopened != nullptr ? reopened->getCurrentBufferSizeSamples() : 0))
+                 + "); leaving it as it is. Choose a block size in the audio settings");
     }
 
     void EngineHost::updateDropouts()
     {
         auto* device = getDeviceManager().getCurrentAudioDevice();
 
-        if (device != dropoutDevice)
+        // The address alone can be reused by the next device, losing the old one's count.
+        const auto key = device == nullptr ? juce::String()
+                                           : juce::String::toHexString ((juce::pointer_sized_int) device) + "|" + device->getTypeName()
+                                                 + "|" + device->getName();
+        if (key != dropoutDevice)
         {
             dropoutsBefore += juce::jmax ((juce::int64) 0, dropoutsNow);
-            dropoutDevice = device;
+            dropoutDevice = key;
         }
 
         dropoutsNow = device != nullptr ? device->getXRunCount() : -1;
@@ -789,6 +817,12 @@ namespace collabgod
     {
         updateDropouts();
 
+        // The device may have changed since the last change message: JUCE replaces it at once
+        // when a driver says its list changed, and the message comes later. Settling must not
+        // finish, and run what waits on it, on a device it was not watching.
+        if (! isLastSeen (getDeviceManager().getCurrentAudioDevice()))
+            deviceChanged();
+
         const double now = nowMs();
         watchDevice (now);
 
@@ -833,12 +867,21 @@ namespace collabgod
         notifyIfChanged();
     }
 
+    bool EngineHost::isLastSeen (juce::AudioIODevice* device) const
+    {
+        if (! deviceKnown || device != lastDevice)
+            return false;
+        if (device == nullptr)
+            return true;
+        // The pointer alone is not enough: a new device can be made where the old one was.
+        return device->getName() == lastDeviceName && device->getTypeName() == lastTypeName
+            && juce::exactlyEqual (device->getCurrentSampleRate(), lastRate) && device->getCurrentBufferSizeSamples() == lastBlock;
+    }
+
     bool EngineHost::isSettled() const
     {
         auto* device = engine->getDeviceManager().deviceManager.getCurrentAudioDevice();
-        // The pointer alone is not enough: a new device can be made where the old one was.
-        return settled && device != nullptr && device == lastDevice && device->getName() == lastDeviceName
-            && juce::exactlyEqual (device->getCurrentSampleRate(), lastRate) && device->getCurrentBufferSizeSamples() == lastBlock;
+        return settled && device != nullptr && isLastSeen (device);
     }
 
     void EngineHost::whenSettled (std::function<void()> fn)

@@ -78,12 +78,18 @@ namespace collabgod
         Clock getClock() const noexcept { return clock; }
         int getDefaultBlockSize() const noexcept { return defaultBlock; }
 
+        /** Devices that list every block size but open at their default whatever is asked, as
+            some real drivers do. Set before the device is opened. */
+        void setOpensAtDefaultBlockSize (bool shouldIgnore) noexcept { ignoresBlockSize = shouldIgnore; }
+        bool opensAtDefaultBlockSize() const noexcept { return ignoresBlockSize; }
+
     private:
         friend class SimulatedAudioDevice;
         void deviceDeleted (SimulatedAudioDevice*);
 
         const Clock clock;
         const int defaultBlock;
+        bool ignoresBlockSize = false;
         juce::StringArray present, goneButListed;
         juce::Array<SimulatedAudioDevice*> open;
         mutable juce::CriticalSection openLock;
@@ -131,6 +137,10 @@ namespace collabgod
             got stuck does. */
         void freeze (bool shouldFreeze) noexcept { frozen.store (shouldFreeze); }
 
+        /** What the driver says it has dropped; -1, the default, for a driver that does not count. */
+        void setDropouts (int n) noexcept { dropouts.store (n); }
+        int getXRunCount() const noexcept override { return dropouts.load(); }
+
         /** Whether an input device was asked for when this device was made. */
         bool inputDeviceWasRequested() const noexcept { return inputRequested; }
 
@@ -167,6 +177,7 @@ namespace collabgod
         std::atomic<float> peak { 0.0f };
         std::atomic<juce::int64> blocks { 0 };
         std::atomic<bool> frozen { false };
+        std::atomic<int> dropouts { -1 };
         std::unique_ptr<RealTimeClock> clock;
 
         JUCE_DECLARE_NON_COPYABLE (SimulatedAudioDevice)

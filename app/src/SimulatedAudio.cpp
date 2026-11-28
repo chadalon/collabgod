@@ -191,7 +191,7 @@ namespace collabgod
         const auto rates = getAvailableSampleRates();
         const auto sizes = getAvailableBufferSizes();
         sampleRate = rates.contains (rate) ? rate : defaultSampleRate;
-        blockSize = sizes.contains (size) ? size : type.getDefaultBlockSize();
+        blockSize = sizes.contains (size) && ! type.opensAtDefaultBlockSize() ? size : type.getDefaultBlockSize();
 
         // Inputs open only when an input device was asked for, as with a real driver.
         inputs = inputRequested ? inputChannels : juce::BigInteger();

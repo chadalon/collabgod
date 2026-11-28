@@ -173,6 +173,8 @@ namespace collabgod
         void startSettling();
         void updateDropouts();
         void watchDevice (double now);
+        /** Whether this is the device deviceChanged last saw, at the same type, name, rate and size. */
+        bool isLastSeen (juce::AudioIODevice*) const;
         void notifyIfChanged();
         int threadsFor (const AudioChoice&) const;
         juce::String deviceListKey();
@@ -198,6 +200,9 @@ namespace collabgod
         // is not tried again until something is plugged in or out.
         juce::String lastReconnectAttempt, lastFallbackAttempt;
         bool reopening = false;
+
+        // Exclusive mode's safe block size is tried once per device and rate: type|name|rate.
+        juce::String exclusiveTried;
         // The chosen device is listed but would not open: the list will not say when it can,
         // so it is tried again every retryListedMs.
         bool chosenWontOpen = false;
@@ -211,7 +216,7 @@ namespace collabgod
 
         // Dropouts the drivers report, summed over devices.
         juce::int64 dropoutsBefore = 0, dropoutsNow = -1;
-        juce::AudioIODevice* dropoutDevice = nullptr;
+        juce::String dropoutDevice;
 
         // Settling (engine-toolchain finding 8, webview-ui finding 8)
         bool settled = false;

@@ -85,10 +85,13 @@ namespace collabgod
                               juce::String typeName = SimulatedAudioDeviceType::typeName,
                               int defaultBlock = 441,
                               int threadsOverride = 0,
-                              juce::String otherTypeName = {})
+                              juce::String otherTypeName = {},
+                              bool pollOnTimer = true,
+                              bool opensAtDefaultBlock = false)
             {
                 const juce::StringArray names { "Simulated Output 1", "Simulated Output 2" };
                 auto t = std::make_unique<SimulatedAudioDeviceType> (clock, names, typeName, defaultBlock);
+                t->setOpensAtDefaultBlockSize (opensAtDefaultBlock);
                 type = t.get();
 
                 EngineHost::Options options;
@@ -105,6 +108,7 @@ namespace collabgod
                 }
                 options.audioThreadsOverride = threadsOverride;
                 options.watchForStalls = clock == SimulatedAudioDeviceType::Clock::realTime;
+                options.pollOnTimer = pollOnTimer;
                 host = std::make_unique<EngineHost> (std::move (options));
             }
 
@@ -498,6 +502,118 @@ namespace collabgod
             r.expect (f.settle(), "and the engine settles");
         }
 
+        /** Fable's review of #165, point 2: a driver type with no devices was saved as if it had opened. */
+        void testDriverTypeWithNoDevices (Results& r)
+        {
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            Fixture f (temp.folder);
+            f.host->getDeviceManager().addAudioDeviceType (
+                std::make_unique<SimulatedAudioDeviceType> (SimulatedAudioDeviceType::Clock::manual, juce::StringArray(), "Empty Driver"));
+
+            const auto s = f.host->choose ({ "Empty Driver", "", 0.0, 0, 0 });
+            r.expect (s.message.contains ("has no output devices"), "a driver type with no devices is refused: " + s.message);
+            r.expect (s.state == AudioState::open && s.type == SimulatedAudioDeviceType::typeName && s.device == "Simulated Output 1",
+                      "and what was open stays open: " + s.type + " " + s.device);
+            r.expect (s.chosen == AudioChoice {}, "the choice is unchanged");
+            r.expect (SettingsFile (temp.folder).audioChoice() == AudioChoice {}, "and nothing is saved");
+
+            // A type-only choice counts as open only under that type.
+            f.host->choose ({ SimulatedAudioDeviceType::typeName, "", 0.0, 0, 0 });
+            f.type->unplug ("Simulated Output 1");
+            f.type->unplug ("Simulated Output 2");
+            pumpFor (100);
+            const auto gone = f.host->status();
+            r.expect (gone.state != AudioState::open, "a type-only choice whose type has no device left is not open: " + toString (gone.state));
+        }
+
+        /** Point 3: settling must not finish on a device it was not watching. JUCE replaces the
+            device at once when a driver's list changes; the change message comes later. */
+        void testSettlingSeesADeviceChangeBeforeItsMessage (Results& r)
+        {
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            Fixture f (temp.folder, SimulatedAudioDeviceType::Clock::manual, SimulatedAudioDeviceType::typeName, 441, 0, {}, false);
+
+            // Poll without the message loop, so no change message can arrive in between.
+            const auto pollFor = [&] (int ms)
+            {
+                for (const auto end = juce::Time::getMillisecondCounter() + (juce::uint32) ms; juce::Time::getMillisecondCounter() < end;)
+                {
+                    juce::Thread::sleep (20);
+                    f.host->poll();
+                }
+            };
+
+            f.host->choose ({ SimulatedAudioDeviceType::typeName, "Simulated Output 1", 0.0, 0, 0 });
+            bool ran = false;
+            f.host->whenSettled ([&] { ran = true; });
+
+            // Let every message through (Tracktion rebuilds its playback context on them) without
+            // polling, so settling has not begun counting quiet. Then poll alone for most of the
+            // 300 ms of quiet it needs.
+            pumpFor (2000);
+            pollFor (200);
+            r.expect (! ran, "not settled yet: 200 ms of 300 ms of quiet");
+
+            f.type->unplug ("Simulated Output 1"); // JUCE opens Output 2 now; its message is still queued
+            pollFor (250);
+            r.expect (! ran, "what waits for settling does not run on the device that just replaced the watched one");
+
+            r.expect (pumpUntil ([&] { f.host->poll(); return ran; }, 6000) && f.host->status().device == "Simulated Output 2",
+                      "it runs once the new device has settled");
+        }
+
+        /** Point 4: a device that lists the safe block size but opens smaller is tried once, not
+            reopened on every change message. */
+        void testExclusiveModeTriesOnce (Results& r)
+        {
+            const ScopedSilentLog silent;
+            const ScopedLogCapture captured;
+            TempFolder temp;
+            Fixture f (temp.folder, SimulatedAudioDeviceType::Clock::manual, "Simulated (Exclusive Mode)", 64, 0, {}, true, true);
+            pumpFor (500);
+
+            int tries = 0, refusals = 0;
+            for (const auto& line : captured.lines())
+            {
+                tries += line.startsWith ("Exclusive mode:") ? 1 : 0;
+                refusals += line.startsWith ("The device did not take") ? 1 : 0;
+            }
+            r.expect (tries == 1, "the safe block size is tried once: " + juce::String (tries) + " times");
+            r.expect (refusals == 1, "and the log says the device did not take it");
+            const auto s = f.host->status();
+            r.expect (s.state == AudioState::open && s.bufferSize == 64, "the device stays open as it is: " + juce::String (s.bufferSize));
+
+            // Unplugged and back: a fresh opening may try again, once.
+            f.type->unplug ("Simulated Output 1");
+            pumpFor (100);
+            f.type->plugIn ("Simulated Output 1");
+            pumpFor (300);
+            int triesAfter = 0;
+            for (const auto& line : captured.lines())
+                triesAfter += line.startsWith ("Exclusive mode:") ? 1 : 0;
+            r.expect (triesAfter <= 3, "and a replug tries again at most once per device: " + juce::String (triesAfter));
+        }
+
+        /** Nit: dropouts from a device that has gone are kept in the total. */
+        void testDropoutsSurviveADeviceChange (Results& r)
+        {
+            const ScopedSilentLog silent;
+            TempFolder temp;
+            Fixture f (temp.folder);
+            f.host->choose ({ SimulatedAudioDeviceType::typeName, "Simulated Output 2", 0.0, 0, 0 });
+            if (auto* device = f.openDevice())
+                device->setDropouts (3);
+            pumpFor (60);
+            r.expect (f.host->status().deviceDropouts == 3, "the driver's dropouts are shown: " + juce::String (f.host->status().deviceDropouts));
+
+            f.type->unplug ("Simulated Output 2");
+            pumpUntil ([&] { return f.host->status().state == AudioState::fallback; });
+            pumpFor (60);
+            r.expect (f.host->status().deviceDropouts == 3, "and kept when the device goes: " + juce::String (f.host->status().deviceDropouts));
+        }
+
         /** A device that is still there but has stopped calling back, as a stuck driver does. */
         void testStalledDevice (Results& r)
         {
@@ -599,6 +715,10 @@ namespace collabgod
         testRemovalAndReconnection (r);
         testRemovalWhilePlaying (r);
         testStalledDevice (r);
+        testDriverTypeWithNoDevices (r);
+        testSettlingSeesADeviceChangeBeforeItsMessage (r);
+        testExclusiveModeTriesOnce (r);
+        testDropoutsSurviveADeviceChange (r);
         testGoneButListed (r);
         testFallbackToAnotherType (r);
 
